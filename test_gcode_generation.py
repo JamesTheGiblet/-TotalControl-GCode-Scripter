@@ -134,6 +134,12 @@ class TestGCodeGeneration(unittest.TestCase):
         ]
         result = generate_gcode_segment(segment)
         self.assertEqual(result, expected_gcode)
+        
+    def test_edge_case_with_high_resolution(self):
+        segment = {"type": "line", "start": [0,0,0], "end": [1,1,1], "resolution": DEFAULT_RESOLUTION}
+        expected_gcode = [
+            f"G1 X1.000 Y1.000 Z1.000 F{DEFAULT_FEEDRATE} E{DEFAULT_EXTRUSION_RATE}"
+        ]
 
 if __name__ == "__main__":
     unittest.main()

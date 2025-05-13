@@ -4,11 +4,11 @@
 TotalControl is an AI-powered adaptive GCode scripting tool, designed to optimize 3D printing workflows, enhance fabrication control, and introduce dynamic AI-driven tuning for material-aware adjustments. This roadmap outlines phased development, ensuring a structured approach to implementation.
 
 📌 Phase 1: Core Framework & Initial Setup
-✅ Repository Structure – Establish modular directory for organized development
-✅ Basic Input Handling – Implement structured parametric descriptors (Bézier, Voronoi, etc.)
-✅ Initial GCode Generation – Convert parametric descriptions into raw GCode
-✅ Basic Testing & Validation – Unit test path translation and output consistency
-Milestone: Set up core GCode translation pipeline
+✅ Repository Structure – Establish modular directory for organized development - Complete
+✅ Basic Input Handling – Implement structured parametric descriptors (Bézier, Voronoi, etc.) - Complete
+✅ Initial GCode Generation – Convert parametric descriptions into raw GCode - Complete
+✅ Basic Testing & Validation – Unit test path translation and output consistency - Complete
+Milestone: Set up core GCode translation pipeline  - Complete 13.05.2025
 
 
 ⚙️ Phase 2: AI-Driven Path Optimization
