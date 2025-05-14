@@ -6,17 +6,31 @@ TotalControl transforms **GCode scripting** into an **intelligent, adaptive proc
 ---
 
 ## 🌟 **Key Features & Innovations**  
-
-✅ **Intent-Based GCode Generation** – Define paths via structured descriptors or natural-language directives  
-✅ **AI-Driven Optimization** – Fine-tune extrusion, speed, acceleration, and geometry for efficiency and stability  
-✅ **Error Prediction & Correction** – Proactive detection of print failures and automated corrective strategies  
-✅ **Material-Aware Adaptation** – Adjust parameters dynamically based on material behavior and environmental factors  
+✅ **Structured Path to G-Code Generation** – Convert JSON-based path descriptions (lines, arcs, Béziers, spirals, repeats, transforms) into executable G-code (Phase 1 Complete).
+✅ **Initial AI-Driven Travel Optimization** – Implemented Nearest Neighbor and 2-opt algorithms to reorder printing segments within layers, reducing non-extruding travel moves and respecting feature print order (e.g., perimeters before infill) (Phase 2 In Progress).
+✅ **Redundant Move Elimination** – Automatically identifies and removes unnecessary travel commands.
+🅿️ **Advanced AI-Driven Optimization (Planned)** – Future enhancements will include fine-tuning extrusion rates, speeds, acceleration, and jerk control based on geometry and material properties.
+🅿️ **Intent-Based GCode Generation (Planned)** – Future support for defining paths via higher-level directives, potentially including natural language.
+🅿️ **Error Prediction & Correction (Planned)** – Future goals include proactive detection of print failures and automated corrective strategies.
+🅿️ **Material-Aware Adaptation (Planned)** – Future capabilities to adjust parameters dynamically based on material behavior.
 ✅ **Extensibility** – Modular framework built for **custom commands, integration with slicers, and advanced fabrication techniques**  
+
+---
+## 🎯 **Current Status & Roadmap**
+The project is actively in **Phase 2: AI-Driven Path Optimization**, with a current focus on:
+*   Solidifying and verifying initial Travel Minimization algorithms (Nearest Neighbor + 2-opt).
+*   Correcting and refining layer reassembly logic post-optimization.
+
+**Next Milestones:**
+1.  Complete robust benchmarking of the current travel minimization.
+2.  Begin exploration and development for Deposition Sequence Optimization within layers.
+
+For a detailed development plan and progress tracking, please see the `DEVELOPMENT.ini` file in this repository.
 
 ---
 
 ## 📂 **Project Structure**  
-
+The project is evolving. The core structure from Phase 1, which handles JSON to G-code generation, includes:
 ```
 totalcontrol/  
 │  
