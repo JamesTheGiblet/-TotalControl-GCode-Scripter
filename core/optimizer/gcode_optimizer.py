@@ -5,32 +5,39 @@
 
 # --- GCode Optimization Module ---
 
+# Standard library imports
+import sys
+import os
+
 # Import the modules we created
 from gcode_parser import parse_gcode_lines, GCodeCommand
-from gcode_segmenter import segment_gcode_into_layers, group_layer_commands_into_segments
-from path_optimization import optimize_extrude_segments_order_nn, apply_2opt_to_segment_order
+from gcode_segmenter import segment_gcode_into_layers, group_layer_commands_into_segments, PrintSegment
+from path_optimization import optimize_extrude_segments_order_nn, apply_2opt_to_segment_order, calculate_total_travel_for_order
 from gcode_generator import regenerate_gcode_for_layer, eliminate_redundant_travel_moves_in_list
 
-# --- Main Orchestration (Conceptual) ---
+# --- Main Orchestration ---
 def optimize_gcode_travel(input_gcode_lines):
     """
-    Main function to apply travel optimization to GCode.
+    Main function to apply travel optimization to GCode.  This function orchestrates the
+    entire G-code optimization process, calling functions from other modules.
     """
     print(f"\n--- Phase 2: AI-Driven Path Optimization - Initial Travel Minimization ---")
     print(f"Input GCode has {len(input_gcode_lines)} lines.")
 
-    # 1. Parse all GCode lines
+    # 1. Parse all GCode lines: Convert raw G-code text into a list of GCodeCommand objects.
     all_parsed_commands = parse_gcode_lines(input_gcode_lines)
     print(f"Parsed {len(all_parsed_commands)} GCode commands with coordinate resolution.")
 
-    # 2. Identify Preamble, Body, and Postamble
-    preamble_commands = []
-    body_commands = []
-    postamble_commands = []
+    # 2. Identify Preamble, Body, and Postamble:  Divide the G-code into sections that define the print.
+    preamble_commands = []  # Commands before the main printing moves (e.g., setup, homing).
+    body_commands = []    # The main printing moves (extrusion and travel).
+    postamble_commands = []  # Commands after the printing is finished (e.g., cooling, motor off).
     
     first_body_cmd_idx = -1
+    first_layer_marker_idx = -1  # Initialize first_layer_marker_idx
     # Find first ";LAYER:" comment or first G0/G1 to a typical print Z after initial setup
-    # This is a heuristic and might need adjustment based on G-code conventions
+    # This is a heuristic and might need adjustment based on G-code conventions.  The goal is to
+    # find the start of the actual printing process, after any initial setup.
     for i, cmd in enumerate(all_parsed_commands):
         if cmd.original_line.startswith(";LAYER:"):
             first_layer_marker_idx = i
@@ -51,7 +58,8 @@ def optimize_gcode_travel(input_gcode_lines):
 
     last_layer_related_cmd_idx = len(all_parsed_commands) -1
     # Find last command related to printing (e.g., last G1 E, or last command of last layer comment block)
-    # Heuristic: postamble starts after last G1 E, or with M107, G28, M84 etc.
+    # Heuristic: postamble starts after last G1 E, or with M107, G28, M84 etc.  The goal is to find the
+    # end of the printing moves and the start of the post-print actions.
     for i in range(len(all_parsed_commands) - 1, first_layer_marker_idx -1, -1):
         cmd = all_parsed_commands[i]
         if cmd.command_type == 'G1' and cmd.is_extruding:
@@ -71,18 +79,19 @@ def optimize_gcode_travel(input_gcode_lines):
 
     print(f"Identified Preamble: {len(preamble_commands)} cmds, Body: {len(body_commands)} cmds, Postamble: {len(postamble_commands)} cmds.")
 
-    final_optimized_gcode_commands = []
-    final_optimized_gcode_commands.extend(preamble_commands)
+    final_optimized_gcode_commands = []  # List to store the final optimized G-code commands.
+    final_optimized_gcode_commands.extend(preamble_commands) # Add the preamble commands to the output.
 
     current_nozzle_xyz = (0.0, 0.0, 0.0) # Assume starting at origin if no position in preamble
     for cmd in preamble_commands: # Update nozzle position from preamble
         if cmd.x is not None and cmd.y is not None and cmd.z is not None: # If G0/G1 sets position
             current_nozzle_xyz = (cmd.x, cmd.y, cmd.z)
 
-    # 3. Segment Body into Layers
+    # 3. Segment Body into Layers:  Divide the main printing commands into layers.
     gcode_layers = segment_gcode_into_layers(body_commands)
     print(f"Segmented body into {len(gcode_layers)} layers.")
 
+    # 4. Process each layer individually.
     for i, layer_cmds_list in enumerate(gcode_layers):
         # Define the desired order of feature types for printing.
         # Standard slicers often use: Perimeters -> Infill -> Skin/TopSolid -> Support
@@ -96,15 +105,16 @@ def optimize_gcode_travel(input_gcode_lines):
             print(f"Layer {i+1} is empty, skipping.")
             continue
 
-        # Determine layer's Z height (most common Z in G0/G1 moves of this layer)
-        # Heuristic: use Z from first G0/G1 command in the layer, or carry over.
-        layer_z_this_layer = current_nozzle_xyz[2] # Default to previous Z
-        # Find the first Z value in a motion command within this layer
-        z_values_in_layer = [cmd.z for cmd in layer_cmds_list if cmd.z is not None and cmd.command_type in ['G0', 'G1', 'G2', 'G3']]
-        if z_values_in_layer:
-            # Use the first Z value encountered as the layer's Z height for travel moves
-            layer_z_this_layer = z_values_in_layer[0]
-        print(f"Layer {i+1} Z determined/assumed as: {layer_z_this_layer}")
+        # Determine layer's Z height
+        layer_z_this_layer = None
+        for cmd in layer_cmds_list:
+            if cmd.command_type in ['G0', 'G1'] and cmd.z is not None:
+                layer_z_this_layer = cmd.z
+                break
+        if layer_z_this_layer is None:
+            layer_z_this_layer = current_nozzle_xyz[2]
+        print(f"Layer {i+1} Z determined as: {layer_z_this_layer}")
+
 
         # 4. Group commands in the current layer into PrintSegments
         segments_in_layer = group_layer_commands_into_segments(layer_cmds_list)
@@ -121,10 +131,9 @@ def optimize_gcode_travel(input_gcode_lines):
 
             if is_valid_extrude_segment and segment.feature_type in optimizable_segments_map:
                 optimizable_segments_map[segment.feature_type].append(segment)
-                # print(f"Debug: Layer {i+1}: Added segment (type={segment.segment_type}, feature={segment.feature_type}, cmds={len(segment.commands)}) to optimizable map.")
             else:
                 non_optimizable_commands.extend(segment.commands)
-                # print(f"Debug: Layer {i+1}: Added segment (type={segment.segment_type}, feature={segment.feature_type}, cmds={len(segment.commands)}) to non-optimizable.")
+
 
         # Add non-optimizable commands first
         final_optimized_gcode_commands.extend(non_optimizable_commands)
@@ -132,7 +141,6 @@ def optimize_gcode_travel(input_gcode_lines):
             last_non_opt_cmd = non_optimizable_commands[-1]
             if last_non_opt_cmd.x is not None and last_non_opt_cmd.y is not None and last_non_opt_cmd.z is not None:
                 current_nozzle_xyz = (last_non_opt_cmd.x, last_non_opt_cmd.y, last_non_opt_cmd.z)
-            # print(f"Debug: Layer {i+1}: Added {len(non_optimizable_commands)} non-optimizable commands. Nozzle at: {current_nozzle_xyz}")
 
         # Process optimizable segments grouped by feature type in the defined order
         for feature_type in FEATURE_PRINT_ORDER:
@@ -142,10 +150,19 @@ def optimize_gcode_travel(input_gcode_lines):
 
                 nozzle_pos_before_this_feature_block = current_nozzle_xyz
 
+                # Calculate initial travel distance
+                initial_distance = calculate_total_travel_for_order(segments_to_optimize, nozzle_pos_before_this_feature_block)
+                
                 # Apply Nearest Neighbor + 2-opt optimization
                 optimized_nn_order = optimize_extrude_segments_order_nn(segments_to_optimize, nozzle_pos_before_this_feature_block)
-                # print(f"Layer {i+1}, {feature_type}: Applying 2-opt refinement to {len(optimized_nn_order)} segments.")
-                optimized_final_order = apply_2opt_to_segment_order(optimized_nn_order, nozzle_pos_before_this_feature_block)
+                print(f"Layer {i+1}, {feature_type}: Applying 2-opt refinement to {len(optimized_nn_order)} segments.")
+                optimized_final_order = apply_2opt_to_segment_order(optimized_nn_order, nozzle_pos_before_this_feature_block, max_iterations_no_improvement=100)
+
+                # Calculate travel distance after optimization
+                optimized_distance = calculate_total_travel_for_order(optimized_final_order, nozzle_pos_before_this_feature_block)
+                
+                print(f"Layer {i+1}, {feature_type}: Initial travel distance: {initial_distance:.2f}, optimized distance: {optimized_distance:.2f}")
+
 
                 # Regenerate G-code for the optimized block, including travel moves
                 regenerated_feature_block_cmds = regenerate_gcode_for_layer(optimized_final_order, nozzle_pos_before_this_feature_block, layer_z_this_layer)
@@ -156,71 +173,10 @@ def optimize_gcode_travel(input_gcode_lines):
                     last_cmd_in_block = regenerated_feature_block_cmds[-1]
                     if last_cmd_in_block.x is not None and last_cmd_in_block.y is not None and last_cmd_in_block.z is not None:
                         current_nozzle_xyz = (last_cmd_in_block.x, last_cmd_in_block.y, last_cmd_in_block.z)
-                    # print(f"Debug: Layer {i+1}, {feature_type}: Finished. Nozzle at: {current_nozzle_xyz}")
-            
-            # Reassembly: Leading non-extrude -> Optimized extrude block -> Trailing non-extrude
-            leading_cmds = []
-            optimized_block_input_segments = []
-            trailing_cmds = []
-            
-            processing_phase = "leading" # leading, extrude_block, trailing
-            
-            # Determine nozzle position before the optimizable block
-            nozzle_pos_before_opt_block = current_nozzle_xyz 
-            # Iterate through original segments to build leading_cmds and update nozzle_pos_before_opt_block
-            temp_pos_tracker = current_nozzle_xyz
-            first_extrude_idx_in_layer = -1
-            last_extrude_idx_in_layer = -1
-
-            for seg_idx, seg in enumerate(segments_in_layer):
-                if seg.segment_type == "extrude":
-                    if first_extrude_idx_in_layer == -1:
-                        first_extrude_idx_in_layer = seg_idx
-                    last_extrude_idx_in_layer = seg_idx
-            
-            if first_extrude_idx_in_layer != -1:
-                for seg_idx in range(first_extrude_idx_in_layer):
-                    leading_cmds.extend(segments_in_layer[seg_idx].commands)
-                    if segments_in_layer[seg_idx].end_point_xyz:
-                        temp_pos_tracker = segments_in_layer[seg_idx].end_point_xyz
-                nozzle_pos_before_opt_block = temp_pos_tracker
-
-                optimized_nn_order = optimize_extrude_segments_order_nn(segments_to_optimize, nozzle_pos_before_opt_block)
-                print(f"Layer {i+1}: Applying 2-opt refinement to {len(optimized_nn_order)} segments.")
-                optimized_final_order = apply_2opt_to_segment_order(optimized_nn_order, nozzle_pos_before_opt_block)
-
-                regenerated_extrude_block_cmds = regenerate_gcode_for_layer(optimized_final_order, nozzle_pos_before_opt_block, layer_z_this_layer)
-
-                for seg_idx in range(last_extrude_idx_in_layer + 1, len(segments_in_layer)):
-                    trailing_cmds.extend(segments_in_layer[seg_idx].commands)
-
-                final_optimized_gcode_commands.extend(leading_cmds)
-                final_optimized_gcode_commands.extend(regenerated_extrude_block_cmds)
-                final_optimized_gcode_commands.extend(trailing_cmds)
-
-                # Update current_nozzle_xyz from the very end of this reassembled layer
-                if trailing_cmds:
-                    last_cmd = trailing_cmds[-1]
-                    if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
-                        current_nozzle_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
-                elif regenerated_extrude_block_cmds:
-                    last_cmd = regenerated_extrude_block_cmds[-1]
-                    if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
-                        current_nozzle_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
-                elif leading_cmds:
-                    last_cmd = leading_cmds[-1]
-                    if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
-                        current_nozzle_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
-                # else current_nozzle_xyz remains from before this layer if layer was all funny
-            else: # Should not happen if extrude_segments_this_layer is populated
-                final_optimized_gcode_commands.extend(layer_cmds_list) # Fallback
-                if layer_cmds_list and layer_cmds_list[-1].x is not None and layer_cmds_list[-1].y is not None and layer_cmds_list[-1].z is not None:
-                    current_nozzle_xyz = (layer_cmds_list[-1].x, layer_cmds_list[-1].y, layer_cmds_list[-1].z)
 
         print(f"Layer {i+1} processing finished. Nozzle at: {current_nozzle_xyz}")
 
-    final_optimized_gcode_commands.extend(postamble_commands)
-    print(f"Added {len(postamble_commands)} postamble commands.")
+    final_optimized_gcode_commands.extend(postamble_commands) # Add the postamble commands to the output.
 
     # 5. Eliminate Redundant Moves (globally, after reassembly)
     final_gcode_after_redundancy_elim = eliminate_redundant_travel_moves_in_list(final_optimized_gcode_commands)
@@ -233,57 +189,30 @@ def optimize_gcode_travel(input_gcode_lines):
     return output_gcode_lines
 
 
+
 # --- Example Usage (Conceptual) ---
 if __name__ == "__main__":
-    sample_gcode_input = [
-        ";Generated by TotalControl Phase 1 (Conceptual)",
-        "G21 ; mm",
-        "G90 ; Absolute",
-        "M82 ; Absolute E",
-        "M104 S200 T0 ; Set extruder temp",
-        "M109 S200 T0 ; Wait for extruder temp",
-        "G28 ; Home all axes",
-        "G1 Z5 F5000 ; Lift Z after homing",
-        ";LAYER_COUNT:2",
-        ";LAYER:0",
-        "M106 S255 ; Fan On",
-        ";TYPE:PERIMETER",
-        "G0 F6000 X10 Y10 Z0.2 ; Travel to start of layer 1, part 1",
-        "G1 F1200 X20 Y10 E1.0 ; Extrude segment 1.1",
-        "G1 X20 Y20 E2.0",
-        "G1 X10 Y20 E3.0",
-        ";TYPE:INFILL",
-        "G0 F6000 X50 Y50 Z0.2 ; Travel to segment 1.2 (far)",
-        ";TYPE:INFILL", # Type comment can be on any line, ideally before the first command of the feature
-        "G1 F1200 X60 Y50 E4.0 ; Extrude segment 1.2",
-        "G1 X60 Y60 E5.0",
-        "G1 X50 Y60 E6.0",
-        "G0 F6000 X10.5 Y20.5 Z0.2 ; Travel to segment 1.3 (near original 1.1 end)",
-        "G1 F1200 X20.5 Y20.5 E7.0 ; Extrude segment 1.3",
-        "G1 X20.5 Y10.5 E8.0",
-        "G1 X10.5 Y10.5 E9.0",
-        ";TYPE:PERIMETER", # Another perimeter segment
-        ";LAYER:1",
-        "G0 F6000 X10 Y10 Z0.4 ; Travel to start of layer 2",
-        "G1 F1200 X30 Y10 E10.0 ; Extrude segment 2.1",
-        "G1 X30 Y30 E11.0",
-        "G1 X10 Y30 E12.0",
-        "G0 X10 Y10 Z0.4 ; Redundant travel (to same spot)",
-        "G0 X10 Y10 Z0.4 ; Another redundant travel",
-        "M107 ; Fan off",
-        "G1 Z10 F3000 ; Lift Z further",
-        "G28 X0 Y0 ; Home X Y axes",
-        "M84 ; Disable motors"
-    ]
+    # To allow running this script directly and finding the example_tests module,
+    # we need to add the project root directory to sys.path.
+    # This assumes that 'example_tests' is a directory at the project root,
+    # and this script ('gcode_optimizer.py') is located in 'core/optimizer/'.
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, "..", ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
-    optimized_gcode = optimize_gcode_travel(sample_gcode_input)
+    from example_tests.gcode_test_files import all_test_gcodes  # Import for example usage
 
-    print("\n--- Original GCode ---")
-    for line_num, line in enumerate(sample_gcode_input):
-        print(f"{line_num+1:03d}: {line}")
+    for i, test_gcode in enumerate(all_test_gcodes):
+        print(f"\n--- Running optimization on Test G-code {i+1} ---")
+        optimized_gcode = optimize_gcode_travel(test_gcode)
 
-    print("\n--- Optimized GCode (Conceptual) ---")
-    for line_num, line in enumerate(optimized_gcode):
-        print(f"{line_num+1:03d}: {line}")
-    # Note: The above code is a conceptual representation and may require adjustments based on actual G-code structure.
-# The above code is a conceptual representation and may require adjustments based on actual G-code structure.
+        print("\n--- Original GCode ---")
+        for line_num, line in enumerate(test_gcode):
+            print(f"{line_num+1:03d}: {line}")
+
+        print("\n--- Optimized GCode (Conceptual) ---")
+        for line_num, line in enumerate(optimized_gcode):
+            print(f"{line_num+1:03d}: {line}")
+        print("\n--- End of Test G-code ---")
+        print("\n--- End of Optimization ---")

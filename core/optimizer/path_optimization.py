@@ -51,7 +51,7 @@ def calculate_total_travel_for_order(segments_order, initial_nozzle_xyz):
             return float('inf') # Invalid path
     return total_dist
 
-def apply_2opt_to_segment_order(ordered_segments, initial_nozzle_xyz, max_iterations_no_improvement=50):
+def apply_2opt_to_segment_order(ordered_segments, initial_nozzle_xyz, max_iterations_no_improvement=100):
     """Applies the 2-opt heuristic to improve the order of extrude segments."""
     if len(ordered_segments) < 2: # 2-opt needs at least 2 segments to swap.
         return ordered_segments
