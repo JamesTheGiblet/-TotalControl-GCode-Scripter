@@ -165,3 +165,58 @@ This document outlines the structure and functionality of the TotalControl G-cod
         *   Edge case tests: `test_edge_case_large_path`, `test_edge_case_small_path`, `test_edge_case_with_negative_coordinates`, `test_edge_case_zero_length_path` test behavior with various coordinate inputs.
 *   **Role in Overall System**:
     Ensures the reliability and correctness of the core G-code generation logic. These tests help catch regressions and verify that individual components produce the expected output for given inputs.
+
+update 14.05.2025
+
+We've gone through several key modules and the main script to integrate Python's standard logging module and enhance the robustness of the code by adding input validation and try-except blocks.
+
+Here's a breakdown of what we've done:
+
+core/ai_optimizer.py:
+
+Integrated the logging module (logger = logging.getLogger(__name__)).
+Enhanced parse_gcode_line to handle empty lines, comments, and malformed parameters gracefully, logging warnings for issues.
+Improved reconstruct_gcode_line to check for the presence of the 'cmd' key.
+Wrapped the core logic in optimize_gcode in a try-except block to catch errors during parsing or reconstruction, logging the error and preserving the original line if processing fails.
+core/gcode_generator.py:
+
+Integrated the logging module (logger = logging.getLogger(__name__)).
+Added input validation checks in generate_gcode_segment, generate_gcode_style, generate_gcode_repeat, and generate_gcode_structure to ensure inputs are of the expected types (e.g., dictionaries, lists).
+Made primitive generation functions (generate_gcode_segment, generate_gcode_style, etc.) more robust by having them log errors and return empty lists ([]) on failure, allowing the main generation loop to continue.
+Enhanced generate_gcode_from_json with try-except blocks around JSON parsing, segment processing, current_position updates, and the application of global modifiers/constraints.
+Added detailed logging messages with context (like segment index or type) to aid debugging.
+example_tests/conftest.py:
+
+Refined the logging setup to use os.makedirs(exist_ok=True) for cleaner directory creation.
+Improved the logger naming convention in pytest_runtest_logreport and the test_logger fixture to use the test's nodeid for more unique and hierarchical logger names.
+Enhanced the extraction of skip reasons in pytest_runtest_logreport to better handle standard skips and expected failures (xfails).
+core/input_handler.py:
+
+Integrated the logging module (logger = logging.getLogger(__name__)).
+Replaced hardcoded F1500 with the DEFAULT_FEEDRATE constant.
+Added logger.error calls before raising TypeError or KeyError for invalid input descriptors or missing keys.
+Added logger.warning for unknown shape types instead of just adding a G-code comment.
+Included logger.debug and logger.info messages to trace the function's execution and success.
+core/segment_primitives.py:
+
+Integrated the logging module (logger = logging.getLogger(__name__)).
+Added comprehensive input validation at the start of each primitive function (generate_gcode_line, generate_gcode_arc, generate_gcode_bezier, generate_gcode_spiral) to check if the input segment is a dictionary and if required parameters are present and correctly structured.
+Wrapped coordinate and parameter parsing in try-except blocks to handle ValueError or TypeError during float conversion.
+Used logger.error for critical input errors (returning []) and logger.warning for non-critical issues or potentially problematic configurations.
+Added logger.debug and logger.info for tracing and success reporting.
+core/transform.py:
+
+Integrated the logging module (logger = logging.getLogger(__name__)).
+Added initial checks for gcode_commands being a list and transform_params being a dictionary.
+Validated the structure and types of rotate, scale, and offset parameters, logging warnings if they are malformed and skipping the application of that specific transformation.
+Wrapped the application of transformations (scaling, rotation, offset) in try-except blocks to catch errors during calculations or coordinate updates, logging the error and skipping the transformation for that command.
+Replaced print warnings with logger.warning.
+main.py:
+
+Integrated the logging module (logger = logging.getLogger(__name__)).
+Added a basic logging.basicConfig for standalone execution visibility.
+Added logger.info messages to mark the start and end of the pipeline and major steps.
+Wrapped the main calls to generate_gcode_from_json and optimize_gcode in a try-except Exception block to catch and log any unhandled errors from the core pipeline.
+Wrapped the demonstrative example steps (lattice, iterative modifiers/constraints) in separate try-except blocks to isolate potential errors in the examples.
+Added checks to ensure demonstrative steps only run if initial G-code generation was successful.
+In summary, we've systematically added logging throughout the core and utility modules, replaced print statements with structured logging calls, and implemented more specific input validation and try-except blocks to make the code more resilient to unexpected data or runtime issues. This provides better visibility into the application's flow and helps diagnose problems more effectively.
