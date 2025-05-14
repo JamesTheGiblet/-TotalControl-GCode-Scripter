@@ -10,8 +10,7 @@ REPORTS_DIR = os.path.join(PROJECT_ROOT, 'reports')
 LOG_FILE_PATH = os.path.join(REPORTS_DIR, 'test_run.log')
 
 # Ensure the reports directory exists
-if not os.path.exists(REPORTS_DIR):
-    os.makedirs(REPORTS_DIR)
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 def pytest_sessionstart(session):
     """
@@ -65,18 +64,31 @@ def pytest_runtest_logreport(report):
     Called after each phase of a test item (setup/call/teardown).
     """
     if report.when == "call":
-        logger = logging.getLogger(report.nodeid) # Use test's specific logger name
+        # Use the test's specific logger name, replacing '::' for valid logger hierarchy
+        logger_name = report.nodeid.replace("::", ".")
+        logger = logging.getLogger(logger_name)
+        test_short_name = report.nodeid.split('::')[-1]
+
         if report.passed:
-            logger.info(f"✅ Test passed: {report.nodeid.split('::')[-1]}")
+            logger.info(f"✅ Test passed: {test_short_name}")
         elif report.failed:
             # The actual error traceback will be logged by pytest's default mechanisms
             # or by specific error logging within the test/application code.
             # This log entry confirms the failure from pytest's perspective.
-            logger.error(f"❌ Test failed: {report.nodeid.split('::')[-1]}")
+            logger.error(f"❌ Test failed: {test_short_name}")
             # You could optionally log report.longreprtext for more details here if needed
             # logger.error(f"Failure details: {report.longreprtext}")
         elif report.skipped:
-            logger.warning(f"⚠️ Test skipped: {report.nodeid.split('::')[-1]} - Reason: {report.longrepr.splitlines()[-1]}")
+            reason = "No explicit reason" # Default
+            if report.outcome == 'xfailed' and hasattr(report, 'wasxfail') and report.wasxfail:
+                reason = f"XFAIL (expected failure): {report.wasxfail}"
+            elif report.longreprtext:
+                text = report.longreprtext.strip()
+                if "Skipped: " in text: # For pytest.skip() or @pytest.mark.skip()
+                    reason = text.split("Skipped: ", 1)[-1]
+                elif text: # Fallback for other skip messages if any
+                    reason = text.splitlines()[-1] if text.splitlines() else text
+            logger.warning(f"⚠️ Test skipped: {test_short_name} - Reason: {reason}")
 
 @pytest.fixture
 def test_logger(request):
@@ -84,7 +96,8 @@ def test_logger(request):
     Fixture to provide a logger named after the test function.
     This makes it easier to trace logs back to specific tests.
     """
-    return logging.getLogger(request.node.name)
+    # Using nodeid and replacing '::' makes it more unique and logger-name friendly
+    return logging.getLogger(request.node.nodeid.replace("::", "."))
 
 @pytest.fixture(autouse=True)
 def setup_and_teardown_environment(): # Renamed for clarity

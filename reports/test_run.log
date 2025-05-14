@@ -1,89 +1,88 @@
-2025-05-14 09:02:46,227 - INFO - conftest - conftest.pytest_sessionstart:43 - Test session started. Logging to: C:\Users\gilbe\Documents\GitHub\-T09:02:46 - INFO - conftest - Starting test: test_parse_g1_move
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_parse_g1_move - Testing G1 move: 'G1 X10 Y20.5 F3000'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G1 X10 Y20.5 F3000'
-09:02:46 - INFO - test_parse_g1_move - ✅ test_parse_g1_move passed
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_parse_g1_move - ✅ Test passed: test_parse_g1_move
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_parse_empty_line
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_parse_empty_line - Testing empty G-code line
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: '   '
-09:02:46 - WARNING - test_gcode_parser - Received empty G-code line.
-09:02:46 - INFO - test_parse_empty_line - ✅ test_parse_empty_line passed
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_parse_empty_line - ✅ Test passed: test_parse_empty_line
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_parse_invalid_param
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_parse_invalid_param - Testing invalid parameter: 'G1 X10 YINVALID'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G1 X10 YINVALID'
-09:02:46 - ERROR - test_gcode_parser - Error parsing parameter 'YINVALID' in line 'G1 X10 YINVALID': could not convert string to float: 'INVALID'
-09:02:46 - INFO - test_parse_invalid_param - ✅ test_parse_invalid_param passed
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_parse_invalid_param - ✅ Test passed: test_parse_invalid_param
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_parse_g0_move
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_parse_g0_move - Testing G0 move: 'G0 X5 Y10'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G0 X5 Y10'
-09:02:46 - INFO - test_parse_g0_move - ✅ test_parse_g0_move passed
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_parse_g0_move - ✅ Test passed: test_parse_g0_move
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_invalid_lines[missing_value]
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_invalid_lines[missing_value] - Testing malformed line: 'G1 X'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G1 X'
-09:02:46 - ERROR - test_gcode_parser - Error parsing parameter 'X' in line 'G1 X': could not convert string to float: ''
-09:02:46 - INFO - test_invalid_lines[missing_value] - ✅ test_invalid_lines passed for: 'G1 X'
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[missing_value] - ✅ Test passed: test_invalid_lines[missing_value]
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_invalid_lines[radius_missing]
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_invalid_lines[radius_missing] - Testing malformed line: 'G2 R'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G2 R'
-09:02:46 - ERROR - test_gcode_parser - Error parsing parameter 'R' in line 'G2 R': could not convert string to float: ''
-09:02:46 - INFO - test_invalid_lines[radius_missing] - ✅ test_invalid_lines passed for: 'G2 R'
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[radius_missing] - ✅ Test passed: test_invalid_lines[radius_missing]
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_invalid_lines[bad_float]
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_invalid_lines[bad_float] - Testing malformed line: 'M104 Sabc'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'M104 Sabc'
-09:02:46 - ERROR - test_gcode_parser - Error parsing parameter 'SABC' in line 'M104 Sabc': could not convert string to float: 'ABC'
-09:02:46 - INFO - test_invalid_lines[bad_float] - ✅ test_invalid_lines passed for: 'M104 Sabc'
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[bad_float] - ✅ Test passed: test_invalid_lines[bad_float]
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Starting test: test_invalid_lines[comment_conflict]
-09:02:46 - INFO - conftest.environment - Test environment setup starting.
-09:02:46 - INFO - test_invalid_lines[comment_conflict] - Testing malformed line: 'T0 ; Comment'
-09:02:46 - INFO - test_gcode_parser - Attempting to parse G-code line: 'T0 ; Comment'
-09:02:46 - ERROR - test_gcode_parser - Error parsing parameter ';' in line 'T0 ; Comment': could not convert string to float: ''
-09:02:46 - INFO - test_invalid_lines[comment_conflict] - ✅ test_invalid_lines passed for: 'T0 ; Comment'
-09:02:46 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[comment_conflict] - ✅ Test passed: test_invalid_lines[comment_conflict]
-09:02:46 - INFO - conftest.environment - Tearing down test environment.
-09:02:46 - INFO - conftest - Test session finished. Exit status: 0
-09:02:46 - INFO - conftest - All tests passed.
-environment setup starting.
-2025-05-14 09:02:46,308 - INFO - test_invalid_lines[radius_missing] - test_gcode_parser.test_invalid_lines:70 - Testing malformed line: 'G2 R'
-2025-05-14 09:02:46,309 - INFO - test_gcode_parser - test_gcode_parser.parse_gcode_line:9 - Attempting to parse G-code line: 'G2 R'
-2025-05-14 09:02:46,310 - ERROR - test_gcode_parser - test_gcode_parser.parse_gcode_line:24 - Error parsing parameter 'R' in line 'G2 R': could not convert string to float: ''
-2025-05-14 09:02:46,310 - INFO - test_invalid_lines[radius_missing] - test_gcode_parser.test_invalid_lines:73 - ✅ test_invalid_lines passed for: 'G2 R'
-2025-05-14 09:02:46,312 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[radius_missing] - conftest.pytest_runtest_logreport:70 - ✅ Test passed: test_invalid_lines[radius_missing]
-2025-05-14 09:02:46,312 - INFO - conftest.environment - conftest.setup_and_teardown_environment:100 - Tearing down test environment.
-2025-05-14 09:02:46,317 - INFO - conftest - conftest.pytest_runtest_setup:61 - Starting test: test_invalid_lines[bad_float]
-2025-05-14 09:02:46,319 - INFO - conftest.environment - conftest.setup_and_teardown_environment:95 - Test environment setup starting.
-2025-05-14 09:02:46,321 - INFO - test_invalid_lines[bad_float] - test_gcode_parser.test_invalid_lines:70 - Testing malformed line: 'M104 Sabc'
-2025-05-14 09:02:46,321 - INFO - test_gcode_parser - test_gcode_parser.parse_gcode_line:9 - Attempting to parse G-code line: 'M104 Sabc'
-2025-05-14 09:02:46,322 - ERROR - test_gcode_parser - test_gcode_parser.parse_gcode_line:24 - Error parsing parameter 'SABC' in line 'M104 Sabc': could not convert string to float: 'ABC'
-2025-05-14 09:02:46,322 - INFO - test_invalid_lines[bad_float] - test_gcode_parser.test_invalid_lines:73 - ✅ test_invalid_lines passed for: 'M104 Sabc'
-2025-05-14 09:02:46,324 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[bad_float] - conftest.pytest_runtest_logreport:70 - ✅ Test passed: test_invalid_lines[bad_float]
-2025-05-14 09:02:46,326 - INFO - conftest.environment - conftest.setup_and_teardown_environment:100 - Tearing down test environment.
-2025-05-14 09:02:46,328 - INFO - conftest - conftest.pytest_runtest_setup:61 - Starting test: test_invalid_lines[comment_conflict]
-2025-05-14 09:02:46,329 - INFO - conftest.environment - conftest.setup_and_teardown_environment:95 - Test environment setup starting.
-2025-05-14 09:02:46,330 - INFO - test_invalid_lines[comment_conflict] - test_gcode_parser.test_invalid_lines:70 - Testing malformed line: 'T0 ; Comment'
-2025-05-14 09:02:46,334 - INFO - test_gcode_parser - test_gcode_parser.parse_gcode_line:9 - Attempting to parse G-code line: 'T0 ; Comment'
-2025-05-14 09:02:46,336 - ERROR - test_gcode_parser - test_gcode_parser.parse_gcode_line:24 - Error parsing parameter ';' in line 'T0 ; Comment': could not convert string to float: ''
-2025-05-14 09:02:46,336 - INFO - test_invalid_lines[comment_conflict] - test_gcode_parser.test_invalid_lines:73 - ✅ test_invalid_lines passed for: 'T0 ; Comment'
-2025-05-14 09:02:46,338 - INFO - example_tests/test_gcode_parser.py::test_invalid_lines[comment_conflict] - conftest.pytest_runtest_logreport:70 - ✅ Test passed: test_invalid_lines[comment_conflict]
-2025-05-14 09:02:46,339 - INFO - conftest.environment - conftest.setup_and_teardown_environment:100 - Tearing down test environment.
-2025-05-14 09:02:46,342 - INFO - conftest - conftest.pytest_sessionfinish:50 - Test session finished. Exit status: 0
-2025-05-14 09:02:46,343 - INFO - conftest - conftest.pytest_sessionfinish:52 - All tests passed.
+2025-05-14 09:20:57,806 - INFO - conftest - conftest.pytest_sessionstart:42 - Test session started. Logging to: C:\Users\gilbe\Documents\GitHub\-T09:20:57 - INFO - conftest - Starting test: test_parse_g1_move
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_g1_move - Testing G1 move: 'G1 X10 Y20.5 F3000'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G1 X10 Y20.5 F3000'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_g1_move - ✅ test_parse_g1_move passed
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_g1_move - ✅ Test passed: test_parse_g1_move
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_parse_empty_line
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_empty_line - Testing empty G-code line
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: '   '
+09:20:57 - WARNING - test_gcode_parser - Received empty G-code line.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_empty_line - ✅ test_parse_empty_line passed
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_empty_line - ✅ Test passed: test_parse_empty_line
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_parse_invalid_param
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_invalid_param - Testing invalid parameter: 'G1 X10 YINVALID'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G1 X10 YINVALID'
+09:20:57 - ERROR - test_gcode_parser - Error parsing parameter 'YINVALID' in line 'G1 X10 YINVALID': could not convert string to float: 'INVALID'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_invalid_param - ✅ test_parse_invalid_param passed
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_invalid_param - ✅ Test passed: test_parse_invalid_param
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_parse_g0_move
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_g0_move - Testing G0 move: 'G0 X5 Y10'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G0 X5 Y10'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_g0_move - ✅ test_parse_g0_move passed
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_parse_g0_move - ✅ Test passed: test_parse_g0_move
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_invalid_lines[missing_value]
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[missing_value] - Testing malformed line: 'G1 X'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G1 X'
+09:20:57 - ERROR - test_gcode_parser - Error parsing parameter 'X' in line 'G1 X': could not convert string to float: ''
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[missing_value] - ✅ test_invalid_lines passed for: 'G1 X'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[missing_value] - ✅ Test passed: test_invalid_lines[missing_value]
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_invalid_lines[radius_missing]
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[radius_missing] - Testing malformed line: 'G2 R'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'G2 R'
+09:20:57 - ERROR - test_gcode_parser - Error parsing parameter 'R' in line 'G2 R': could not convert string to float: ''
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[radius_missing] - ✅ test_invalid_lines passed for: 'G2 R'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[radius_missing] - ✅ Test passed: test_invalid_lines[radius_missing]
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_invalid_lines[bad_float]
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[bad_float] - Testing malformed line: 'M104 Sabc'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'M104 Sabc'
+09:20:57 - ERROR - test_gcode_parser - Error parsing parameter 'SABC' in line 'M104 Sabc': could not convert string to float: 'ABC'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[bad_float] - ✅ test_invalid_lines passed for: 'M104 Sabc'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[bad_float] - ✅ Test passed: test_invalid_lines[bad_float]
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Starting test: test_invalid_lines[comment_conflict]
+09:20:57 - INFO - conftest.environment - Test environment setup starting.
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[comment_conflict] - Testing malformed line: 'T0 ; Comment'
+09:20:57 - INFO - test_gcode_parser - Attempting to parse G-code line: 'T0 ; Comment'
+09:20:57 - ERROR - test_gcode_parser - Error parsing parameter ';' in line 'T0 ; Comment': could not convert string to float: ''
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[comment_conflict] - ✅ test_invalid_lines passed for: 'T0 ; Comment'
+09:20:57 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[comment_conflict] - ✅ Test passed: test_invalid_lines[comment_conflict]
+09:20:57 - INFO - conftest.environment - Tearing down test environment.
+09:20:57 - INFO - conftest - Test session finished. Exit status: 0
+09:20:57 - INFO - conftest - All tests passed.
+G2 R'
+2025-05-14 09:20:57,896 - INFO - test_gcode_parser - test_gcode_parser.parse_gcode_line:9 - Attempting to parse G-code line: 'G2 R'
+2025-05-14 09:20:57,897 - ERROR - test_gcode_parser - test_gcode_parser.parse_gcode_line:24 - Error parsing parameter 'R' in line 'G2 R': could not convert string to float: ''
+2025-05-14 09:20:57,897 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[radius_missing] - test_gcode_parser.test_invalid_lines:73 - ✅ test_invalid_lines passed for: 'G2 R'
+2025-05-14 09:20:57,898 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[radius_missing] - conftest.pytest_runtest_logreport:73 - ✅ Test passed: test_invalid_lines[radius_missing]
+2025-05-14 09:20:57,898 - INFO - conftest.environment - conftest.setup_and_teardown_environment:113 - Tearing down test environment.
+2025-05-14 09:20:57,900 - INFO - conftest - conftest.pytest_runtest_setup:60 - Starting test: test_invalid_lines[bad_float]
+2025-05-14 09:20:57,901 - INFO - conftest.environment - conftest.setup_and_teardown_environment:108 - Test environment setup starting.
+2025-05-14 09:20:57,903 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[bad_float] - test_gcode_parser.test_invalid_lines:70 - Testing malformed line: 'M104 Sabc'
+2025-05-14 09:20:57,904 - INFO - test_gcode_parser - test_gcode_parser.parse_gcode_line:9 - Attempting to parse G-code line: 'M104 Sabc'
+2025-05-14 09:20:57,904 - ERROR - test_gcode_parser - test_gcode_parser.parse_gcode_line:24 - Error parsing parameter 'SABC' in line 'M104 Sabc': could not convert string to float: 'ABC'
+2025-05-14 09:20:57,905 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[bad_float] - test_gcode_parser.test_invalid_lines:73 - ✅ test_invalid_lines passed for: 'M104 Sabc'
+2025-05-14 09:20:57,906 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[bad_float] - conftest.pytest_runtest_logreport:73 - ✅ Test passed: test_invalid_lines[bad_float]
+2025-05-14 09:20:57,907 - INFO - conftest.environment - conftest.setup_and_teardown_environment:113 - Tearing down test environment.
+2025-05-14 09:20:57,910 - INFO - conftest - conftest.pytest_runtest_setup:60 - Starting test: test_invalid_lines[comment_conflict]
+2025-05-14 09:20:57,911 - INFO - conftest.environment - conftest.setup_and_teardown_environment:108 - Test environment setup starting.
+2025-05-14 09:20:57,912 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[comment_conflict] - test_gcode_parser.test_invalid_lines:70 - Testing malformed line: 'T0 ; Comment'
+2025-05-14 09:20:57,913 - INFO - test_gcode_parser - test_gcode_parser.parse_gcode_line:9 - Attempting to parse G-code line: 'T0 ; Comment'
+2025-05-14 09:20:57,913 - ERROR - test_gcode_parser - test_gcode_parser.parse_gcode_line:24 - Error parsing parameter ';' in line 'T0 ; Comment': could not convert string to float: ''
+2025-05-14 09:20:57,914 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[comment_conflict] - test_gcode_parser.test_invalid_lines:73 - ✅ test_invalid_lines passed for: 'T0 ; Comment'
+2025-05-14 09:20:57,915 - INFO - example_tests/test_gcode_parser.py.test_invalid_lines[comment_conflict] - conftest.pytest_runtest_logreport:73 - ✅ Test passed: test_invalid_lines[comment_conflict]
+2025-05-14 09:20:57,915 - INFO - conftest.environment - conftest.setup_and_teardown_environment:113 - Tearing down test environment.
+2025-05-14 09:20:57,920 - INFO - conftest - conftest.pytest_sessionfinish:49 - Test session finished. Exit status: 0
+2025-05-14 09:20:57,920 - INFO - conftest - conftest.pytest_sessionfinish:51 - All tests passed.
