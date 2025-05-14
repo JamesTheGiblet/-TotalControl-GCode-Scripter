@@ -5,37 +5,45 @@
 
 # --- GCode Optimization Module ---
 import math
-
+import re
 # --- Data Structures ---
 class GCodeCommand:
-    def __init__(self, raw_line, command_type=None, params=None, is_extruding=False, x=None, y=None, z=None, e=None, f=None):
-        self.raw_line = raw_line.strip()
-        self.command_type = command_type # e.g., 'G0', 'G1', 'M104'
+    def __init__(self, original_line, command_type=None, params=None, comment=None,
+                 line_number=0, x=None, y=None, z=None, e=None, f=None, feature_type=None, is_extruding=False):
+
+        self.original_line = original_line.strip()
+        self.command_type = command_type  # e.g., 'G0', 'G1', 'M104'
         self.params = params if params is not None else {} # e.g., {'X': 10.0, 'Y': 5.0}
-        self.is_extruding = is_extruding # True if this command is part of an extrusion move
+        self.is_extruding = False # Initialize with a default value or pass it as a parameter
         # Store key coordinates for easy access and state tracking
         self.x = x
         self.y = y
         self.z = z
         self.e = e # Extruder position
         self.f = f # Feedrate
+        self.feature_type = feature_type # e.g., "PERIMETER", "INFILL", "SUPPORT", "UNKNOWN"
+        self.is_extruding = is_extruding
+        self.line_number = line_number # Ensure line_number is stored
+        self.comment = comment # Ensure comment is stored
 
     def __repr__(self):
-        return f"GCodeCommand({self.raw_line})"
+        return f"GCodeCommand({self.command_type}, {self.params}, L:{self.line_number}, XYZ:({self.x},{self.y},{self.z}), E:{self.e}, F:{self.f}, Type:{self.feature_type})"
 
     @classmethod
-    def parse(cls, line, current_e_value=0.0, last_motion_e=0.0):
+    def parse(cls, line, current_e_value=0.0, last_motion_e=0.0, current_feature_type="UNKNOWN"):
         """
         Parses a single GCode line, tracking extruder state based on the
         E parameter and comparing it to the E value of the last motion command.
+        Also attempts to extract feature type from comments like '; TYPE: ...'.
+
         """
         line_stripped = line.strip()
         if not line_stripped or line_stripped.startswith(';'):
-            return cls(raw_line=line_stripped)
+            return cls(original_line=line_stripped)
 
         parts = line_stripped.split(';')[0].strip().split()
         if not parts:
-            return cls(raw_line=line_stripped)
+            return cls(original_line=line_stripped)
 
         cmd_type = parts[0].upper()
         params = {}
@@ -60,10 +68,24 @@ class GCodeCommand:
         # An extruding move for deposition purposes is a G1/G2/G3 command where E increases.
         if cmd_type in ['G1', 'G2', 'G3'] and e_val is not None:
             if e_val > last_motion_e + 1e-5:  # e_val must be strictly greater for deposition
+                # Note: This simple check doesn't handle retractions (E decreases) correctly
+                # as non-extruding moves. A more robust check might be needed.
                 is_extruding_move = True
 
-        return cls(raw_line=line_stripped, command_type=cmd_type, params=params,
-                   is_extruding=is_extruding_move, x=x, y=y, z=z, e=e_val, f=f_val)
+        # Extract comment part
+        comment = ""
+        if ';' in line_stripped:
+             comment = line_stripped.split(';', 1)[1].strip()
+
+        # Pass the current_feature_type determined by the caller (parse_gcode_lines)
+        # Only associate feature type with motion commands for now, or maybe all commands?
+        # Let's associate it with motion commands as that's where it's most relevant for segmentation.
+        feature_type_for_cmd = current_feature_type if cmd_type in ['G0', 'G1', 'G2', 'G3'] else None
+
+        # Pass all relevant parsed/determined values to the constructor
+        # line_number will use its default (0) here; parse_gcode_lines can update it if needed.
+        return cls(original_line=line_stripped, command_type=cmd_type, params=params, comment=comment,
+                   x=x, y=y, z=z, e=e_val, f=f_val, feature_type=feature_type_for_cmd, is_extruding=is_extruding_move)
 
 
 class PrintSegment:
@@ -73,6 +95,7 @@ class PrintSegment:
         self.segment_type = segment_type
         self.start_point_xyz = None # (x, y, z)
         self.end_point_xyz = None   # (x, y, z)
+        self.feature_type = "UNKNOWN" # e.g., "PERIMETER", "INFILL"
         self._calculate_endpoints_and_update_cmds()
 
     def _calculate_endpoints_and_update_cmds(self):
@@ -83,6 +106,10 @@ class PrintSegment:
         Relies on GCodeCommand.x, .y, .z being pre-resolved to absolute coordinates
         by the parse_gcode_lines function.
         """
+        # Determine segment feature type - use the type of the first command that has one
+        for cmd in self.commands:
+            if cmd.feature_type and cmd.feature_type != "UNKNOWN":
+                self.feature_type = cmd.feature_type
         if not self.commands:
             return
 
@@ -112,14 +139,26 @@ class PrintSegment:
 
 # --- Helper Functions ---
 def parse_gcode_lines(gcode_lines):
-    """Parses a list of GCode strings into GCodeCommand objects, tracking extruder state."""
+    """
+    Parses a list of GCode strings into GCodeCommand objects, tracking extruder state
+    and resolving absolute coordinates based on previous commands.
+    Also tracks feature type from comments.
+    """
     parsed_commands = []
     current_e = 0.0  # Track last E value
     current_x, current_y, current_z = None, None, None  # Track current position
     last_motion_e = 0.0 # Track E value of the last G0/G1/G2/G3
+    current_feature_type = "UNKNOWN" # Track current feature type from comments
+
 
     for line_num, line_str in enumerate(gcode_lines):
-        cmd = GCodeCommand.parse(line_str, current_e, last_motion_e)
+        # Check for feature type comments (case-insensitive) before parsing the command itself
+        type_match = re.search(r";\s*TYPE\s*:\s*(\w+)", line_str, re.IGNORECASE)
+        if type_match:
+            current_feature_type = type_match.group(1).upper()
+
+        cmd = GCodeCommand.parse(line_str, current_e, last_motion_e, current_feature_type)
+
 
         effective_x = cmd.x if cmd.x is not None else current_x
         effective_y = cmd.y if cmd.y is not None else current_y
@@ -133,6 +172,7 @@ def parse_gcode_lines(gcode_lines):
             if cmd.command_type in ['G0', 'G1', 'G2', 'G3']:
                 last_motion_e = cmd.e
 
+        # The feature_type is already set on the command object by GCodeCommand.parse if found in the line.
         parsed_commands.append(cmd)
     return parsed_commands
 
@@ -149,12 +189,12 @@ def segment_gcode_into_layers(parsed_commands):
     last_layer_defining_z = None # Z value that defined the start of the current layer segment
     
     # Determine if explicit layer comments are used
-    has_explicit_layer_comments = any(cmd.raw_line.startswith(";LAYER:") for cmd in parsed_commands)
+    has_explicit_layer_comments = any(cmd.original_line.startswith(";LAYER:") for cmd in parsed_commands)
 
     for cmd in parsed_commands:
         is_new_layer_boundary = False
         if has_explicit_layer_comments:
-            if cmd.raw_line.startswith(";LAYER:"):
+            if cmd.original_line.startswith(";LAYER:"):
                 if current_layer_commands: # New layer starts here
                     is_new_layer_boundary = True
         else: # Fallback to Z-based segmentation
@@ -173,7 +213,7 @@ def segment_gcode_into_layers(parsed_commands):
         if cmd.command_type in ['G0', 'G1'] and cmd.z is not None:
             if last_layer_defining_z is None: # First Z for this layer segment
                 last_layer_defining_z = cmd.z
-            elif has_explicit_layer_comments and cmd.raw_line.startswith(";LAYER:"):
+            elif has_explicit_layer_comments and cmd.original_line.startswith(";LAYER:"):
                 # If it's an explicit layer comment on a Z move, that Z defines the new layer
                 last_layer_defining_z = cmd.z
 
@@ -202,7 +242,11 @@ def group_layer_commands_into_segments(layer_commands):
         if current_segment_type != segment_type_for_cmd and current_segment_cmds:
             # End previous segment
             segments.append(PrintSegment(current_segment_cmds, current_segment_type))
+            # print(f"Debug: Created segment type {current_segment_type} with {len(current_segment_cmds)} commands.")
             current_segment_cmds = []
+
+        # For non-motion commands, the segment type is 'other' and they are typically single-command segments.
+        # For motion commands (G0, G1, G2, G3), they are grouped until the motion type changes or extrusion state changes.
 
         current_segment_cmds.append(cmd)
         current_segment_type = segment_type_for_cmd
@@ -228,6 +272,72 @@ def xy_distance(p1_xyz, p2_xyz):
 
 
 # --- Optimization Algorithms ---
+
+def calculate_total_travel_for_order(segments_order, initial_nozzle_xyz):
+    """
+    Calculates the total XY travel distance for a given order of extrusion segments.
+    Args:
+        segments_order: A list of PrintSegment objects.
+        initial_nozzle_xyz: The (x,y,z) where the nozzle is before starting this sequence.
+    Returns:
+        Total XY travel distance.
+    """
+    if not segments_order:
+        return 0.0
+    
+    total_dist = 0.0
+    current_pos = initial_nozzle_xyz
+
+    for segment in segments_order:
+        if segment.start_point_xyz:
+            total_dist += xy_distance(current_pos, segment.start_point_xyz)
+            if segment.end_point_xyz:
+                current_pos = segment.end_point_xyz
+            else:
+                # This case should ideally not be reached if segments are pre-filtered
+                print(f"Warning: Segment {segment} has no end_point_xyz during travel calculation.")
+                return float('inf') # Invalid path
+        else:
+            # This case should ideally not be reached
+            print(f"Warning: Segment {segment} has no start_point_xyz during travel calculation.")
+            return float('inf') # Invalid path
+    return total_dist
+
+def apply_2opt_to_segment_order(ordered_segments, initial_nozzle_xyz, max_iterations_no_improvement=50):
+    """Applies the 2-opt heuristic to improve the order of extrude segments."""
+    if len(ordered_segments) < 2: # 2-opt needs at least 2 segments to swap.
+        return ordered_segments
+
+    current_best_order = list(ordered_segments)
+    current_best_distance = calculate_total_travel_for_order(current_best_order, initial_nozzle_xyz)
+    
+    num_segments = len(current_best_order)
+    stale_iterations = 0
+
+    while stale_iterations < max_iterations_no_improvement:
+        improved_in_pass = False
+        for i in range(num_segments - 1):
+            for k in range(i + 1, num_segments):
+                new_order = list(current_best_order) # Work on a copy
+                segment_to_reverse = new_order[i : k+1]
+                segment_to_reverse.reverse()
+                new_order[i : k+1] = segment_to_reverse
+                
+                new_distance = calculate_total_travel_for_order(new_order, initial_nozzle_xyz)
+
+                if new_distance < current_best_distance - 1e-5: # Use a small tolerance for improvement
+                    current_best_order = new_order
+                    current_best_distance = new_distance
+                    improved_in_pass = True
+                    # print(f"2-opt improvement: new_distance={current_best_distance:.2f} with swap ({i}, {k})") # Debug
+        
+        if improved_in_pass:
+            stale_iterations = 0 # Reset counter if improvement was made
+        else:
+            stale_iterations += 1 # Increment if no improvement in this full pass
+
+    # print(f"2-opt finished. Final distance: {current_best_distance:.2f}")
+    return current_best_order
 
 def optimize_extrude_segments_order_nn(extrude_segments, current_nozzle_xyz):
     """
@@ -283,7 +393,7 @@ def optimize_extrude_segments_order_nn(extrude_segments, current_nozzle_xyz):
     return ordered_segments
 
 
-def regenerate_gcode_for_layer(ordered_extrude_segments, initial_nozzle_xyz, layer_z, travel_feed_rate=3000):
+def regenerate_gcode_for_layer(ordered_extrude_segments, initial_nozzle_xyz, layer_z, travel_feed_rate=3000, extrusion_feed_rate=1200):
     """
     Generates GCode commands for a layer from ordered extrude segments,
     inserting G0 travel moves.
@@ -292,6 +402,8 @@ def regenerate_gcode_for_layer(ordered_extrude_segments, initial_nozzle_xyz, lay
         initial_nozzle_xyz: The (x,y,z) of the nozzle before the first travel move of this sequence.
         layer_z: The Z height for this layer (used for travel moves).
         travel_feed_rate: Feed rate for G0 travel moves.
+        extrusion_feed_rate: Default feed rate for G1 extrusion moves if not specified in segment.
+
     Returns:
         A list of GCodeCommand objects for the optimized layer's printing part.
     """
@@ -315,7 +427,7 @@ def regenerate_gcode_for_layer(ordered_extrude_segments, initial_nozzle_xyz, lay
                 needs_travel = False
         
         if needs_travel:
-            travel_params_dict = {'F': travel_feed_rate, 'X': round(target_x, 3), 'Y': round(target_y, 3), 'Z': round(layer_z, 3)}
+            travel_params_dict = {'F': travel_feed_rate, 'X': target_x, 'Y': target_y, 'Z': layer_z}
             
             g0_line_parts = ["G0"]
             if 'F' in travel_params_dict: g0_line_parts.append(f"F{travel_params_dict['F']}")
@@ -324,10 +436,14 @@ def regenerate_gcode_for_layer(ordered_extrude_segments, initial_nozzle_xyz, lay
             if 'Z' in travel_params_dict: g0_line_parts.append(f"Z{travel_params_dict['Z']}") # Ensure Z is in travel
             raw_g0_line = " ".join(g0_line_parts)
 
-            travel_cmd = GCodeCommand.parse(raw_g0_line) # Parse to get all fields
-            travel_cmd.x, travel_cmd.y, travel_cmd.z = target_x, target_y, layer_z # Ensure these are set
+            # Manually create GCodeCommand for travel as parse expects full GCode line context
+            travel_cmd = GCodeCommand(original_line=raw_g0_line, command_type='G0', params=travel_params_dict,
+                                      x=target_x, y=target_y, z=layer_z, f=travel_feed_rate, is_extruding=False)
+            
+            # travel_cmd = GCodeCommand.parse(raw_g0_line) # Parse to get all fields - this won't work correctly without full context            travel_cmd.x, travel_cmd.y, travel_cmd.z = target_x, target_y, layer_z # Ensure these are set
             optimized_gcode_cmds.append(travel_cmd)
             current_xyz = (target_x, target_y, layer_z)
+            # print(f"Debug: Added travel G0 to ({target_x:.3f}, {target_y:.3f}, {layer_z:.3f})")
 
         # 2. Add the extrusion commands from the segment
         for cmd in segment.commands:
@@ -370,12 +486,14 @@ def eliminate_redundant_travel_moves_in_list(gcode_command_list):
                 # If an axis is NOT specified in G0, it implies no change for that axis from the G0's perspective.
                 # Redundancy means: for all axes specified in G0, they match the last target, AND no new F.
                 
-                is_same_target_location = True
-                if cmd.x is not None and (last_motion_command.x is None or abs(cmd.x - last_motion_command.x) > 1e-5): is_same_target_location = False
-                if cmd.y is not None and (last_motion_command.y is None or abs(cmd.y - last_motion_command.y) > 1e-5): is_same_target_location = False
-                if cmd.z is not None and (last_motion_command.z is None or abs(cmd.z - last_motion_command.z) > 1e-5): is_same_target_location = False
-                
-                if is_same_target_location and cmd.f is None:
+                # Check if the target of the current G0 is the same as the target of the last motion command
+                # This requires comparing cmd.x, cmd.y, cmd.z (the target of the current G0)
+                # with last_motion_command.x, last_motion_command.y, last_motion_command.z (the target of the last motion command)
+                # We need to handle cases where coordinates are None (not specified in the command).
+                # A G0 is redundant if its target X, Y, Z are the same as the previous motion command's target X, Y, Z.
+                if last_motion_command.x is not None and cmd.x is not None and abs(cmd.x - last_motion_command.x) < 1e-5 and \
+                   last_motion_command.y is not None and cmd.y is not None and abs(cmd.y - last_motion_command.y) < 1e-5 and \
+                   last_motion_command.z is not None and cmd.z is not None and abs(cmd.z - last_motion_command.z) < 1e-5:
                     is_redundant = True
                 
                 # Also, an empty G0 (no X,Y,Z,F) is redundant
@@ -393,7 +511,7 @@ def optimize_gcode_travel(input_gcode_lines):
     """
     Main function to apply travel optimization to GCode.
     """
-    print(f"Phase 2: AI-Driven Path Optimization - Initial Travel Minimization")
+    print(f"\n--- Phase 2: AI-Driven Path Optimization - Initial Travel Minimization ---")
     print(f"Input GCode has {len(input_gcode_lines)} lines.")
 
     # 1. Parse all GCode lines
@@ -405,11 +523,11 @@ def optimize_gcode_travel(input_gcode_lines):
     body_commands = []
     postamble_commands = []
     
-    first_layer_marker_idx = -1
+    first_body_cmd_idx = -1
     # Find first ";LAYER:" comment or first G0/G1 to a typical print Z after initial setup
     # This is a heuristic and might need adjustment based on G-code conventions
     for i, cmd in enumerate(all_parsed_commands):
-        if cmd.raw_line.startswith(";LAYER:"):
+        if cmd.original_line.startswith(";LAYER:"):
             first_layer_marker_idx = i
             break
         # Add more heuristics if needed, e.g., first G0 X Y Z after G28 and M109
@@ -417,12 +535,13 @@ def optimize_gcode_travel(input_gcode_lines):
     if first_layer_marker_idx == -1: # No explicit layer markers, assume all is body (simplification)
         print("Warning: No explicit ';LAYER:' comments found. Treating all commands as body after initial G28/lift if any.")
         # Attempt to find end of preamble by looking for first significant XY move at low Z
-        g28_found = any(c.command_type == 'G28' for c in all_parsed_commands)
+        g28_found = any(c.command_type == 'G28' for c in all_parsed_commands) # Check if G28 is present
         for i, cmd in enumerate(all_parsed_commands):
             if g28_found and cmd.command_type in ['G0','G1'] and cmd.x is not None and cmd.y is not None and cmd.z is not None and cmd.z < 5.0 : # Arbitrary low Z
-                first_layer_marker_idx = i
+                first_body_cmd_idx = i
                 break
-        if first_layer_marker_idx == -1 : first_layer_marker_idx = 0
+        if first_body_cmd_idx == -1 : first_body_cmd_idx = 0 # If no heuristic works, assume body starts at index 0
+    else: first_body_cmd_idx = first_layer_marker_idx # If layer marker found, body starts there
 
 
     last_layer_related_cmd_idx = len(all_parsed_commands) -1
@@ -441,8 +560,8 @@ def optimize_gcode_travel(input_gcode_lines):
                 last_layer_related_cmd_idx = j
             break
 
-    preamble_commands = all_parsed_commands[:first_layer_marker_idx]
-    body_commands = all_parsed_commands[first_layer_marker_idx : last_layer_related_cmd_idx + 1]
+    preamble_commands = all_parsed_commands[:first_body_cmd_idx]
+    body_commands = all_parsed_commands[first_body_cmd_idx : last_layer_related_cmd_idx + 1]
     postamble_commands = all_parsed_commands[last_layer_related_cmd_idx + 1 :]
 
     print(f"Identified Preamble: {len(preamble_commands)} cmds, Body: {len(body_commands)} cmds, Postamble: {len(postamble_commands)} cmds.")
@@ -450,7 +569,7 @@ def optimize_gcode_travel(input_gcode_lines):
     final_optimized_gcode_commands = []
     final_optimized_gcode_commands.extend(preamble_commands)
 
-    current_nozzle_xyz = (0.0, 0.0, 0.0) # Assume starting at origin or track from GCode preamble
+    current_nozzle_xyz = (0.0, 0.0, 0.0) # Assume starting at origin if no position in preamble
     for cmd in preamble_commands: # Update nozzle position from preamble
         if cmd.x is not None and cmd.y is not None and cmd.z is not None: # If G0/G1 sets position
             current_nozzle_xyz = (cmd.x, cmd.y, cmd.z)
@@ -460,7 +579,14 @@ def optimize_gcode_travel(input_gcode_lines):
     print(f"Segmented body into {len(gcode_layers)} layers.")
 
     for i, layer_cmds_list in enumerate(gcode_layers):
-        print(f"\nProcessing Layer {i+1} with {len(layer_cmds_list)} commands...")
+        # Define the desired order of feature types for printing.
+        # Standard slicers often use: Perimeters -> Infill -> Skin/TopSolid -> Support
+        # We can make this configurable later.
+        # Common types: PERIMETER, WALL-OUTER, WALL-INNER, FILL, SKIN, TOP-SOLID-FILL, BRIDGE, SUPPORT
+        # Let's use a simplified order for now.
+        FEATURE_PRINT_ORDER = ["PERIMETER", "WALL-OUTER", "WALL-INNER", "FILL", "SKIN", "BRIDGE", "SUPPORT", "UNKNOWN"]
+
+        print(f"\nProcessing Layer {i+1} (original cmd count: {len(layer_cmds_list)})...")
         if not layer_cmds_list:
             print(f"Layer {i+1} is empty, skipping.")
             continue
@@ -468,28 +594,64 @@ def optimize_gcode_travel(input_gcode_lines):
         # Determine layer's Z height (most common Z in G0/G1 moves of this layer)
         # Heuristic: use Z from first G0/G1 command in the layer, or carry over.
         layer_z_this_layer = current_nozzle_xyz[2] # Default to previous Z
-        z_values_in_layer = [cmd.z for cmd in layer_cmds_list if cmd.z is not None and cmd.command_type in ['G0','G1']]
+        # Find the first Z value in a motion command within this layer
+        z_values_in_layer = [cmd.z for cmd in layer_cmds_list if cmd.z is not None and cmd.command_type in ['G0', 'G1', 'G2', 'G3']]
         if z_values_in_layer:
-            # Simplistic: use the first Z found in a G0/G1 as the layer's Z.
-            # A better method would be to find the Z of the first actual printing move or a layer comment.
+            # Use the first Z value encountered as the layer's Z height for travel moves
             layer_z_this_layer = z_values_in_layer[0]
         print(f"Layer {i+1} Z determined/assumed as: {layer_z_this_layer}")
 
         # Group commands in the current layer into PrintSegments
         segments_in_layer = group_layer_commands_into_segments(layer_cmds_list)
         
-        extrude_segments_this_layer = [s for s in segments_in_layer if s.segment_type == "extrude" and s.start_point_xyz and s.end_point_xyz]
-        
-        if not extrude_segments_this_layer:
-            print(f"Layer {i+1}: No extrude segments to optimize. Adding original layer commands.")
-            final_optimized_gcode_commands.extend(layer_cmds_list)
-            # Update nozzle position from last command in this layer
-            if layer_cmds_list:
-                last_cmd_in_layer = layer_cmds_list[-1]
-                if last_cmd_in_layer.x is not None and last_cmd_in_layer.y is not None and last_cmd_in_layer.z is not None:
-                    current_nozzle_xyz = (last_cmd_in_layer.x, last_cmd_in_layer.y, last_cmd_in_layer.z)
-        else:
-            print(f"Layer {i+1}: Found {len(extrude_segments_this_layer)} extrude segments to optimize.")
+        print(f"Layer {i+1}: Grouped into {len(segments_in_layer)} segments.")
+
+        # Separate segments into optimizable (extrude with valid endpoints) and non-optimizable
+        optimizable_segments_map = {ft: [] for ft in FEATURE_PRINT_ORDER}
+        non_optimizable_commands = [] # Commands from segments that won't be reordered
+
+        for segment in segments_in_layer:
+            is_extrude_block = any(cmd.is_extruding for cmd in segment.commands) # Use is_extruding flag
+            is_valid_extrude_segment = is_extrude_block and segment.start_point_xyz and segment.end_point_xyz
+
+            if is_valid_extrude_segment and segment.feature_type in optimizable_segments_map:
+                optimizable_segments_map[segment.feature_type].append(segment)
+                # print(f"Debug: Layer {i+1}: Added segment (type={segment.segment_type}, feature={segment.feature_type}, cmds={len(segment.commands)}) to optimizable map.")
+            else:
+                non_optimizable_commands.extend(segment.commands)
+                # print(f"Debug: Layer {i+1}: Added segment (type={segment.segment_type}, feature={segment.feature_type}, cmds={len(segment.commands)}) to non-optimizable.")
+
+        # Add non-optimizable commands first
+        final_optimized_gcode_commands.extend(non_optimizable_commands)
+        if non_optimizable_commands:
+            last_non_opt_cmd = non_optimizable_commands[-1]
+            if last_non_opt_cmd.x is not None and last_non_opt_cmd.y is not None and last_non_opt_cmd.z is not None:
+                current_nozzle_xyz = (last_non_opt_cmd.x, last_non_opt_cmd.y, last_non_opt_cmd.z)
+            # print(f"Debug: Layer {i+1}: Added {len(non_optimizable_commands)} non-optimizable commands. Nozzle at: {current_nozzle_xyz}")
+
+        # Process optimizable segments grouped by feature type in the defined order
+        for feature_type in FEATURE_PRINT_ORDER:
+            segments_to_optimize = optimizable_segments_map.get(feature_type, [])
+            if segments_to_optimize:
+                print(f"Layer {i+1}: Optimizing {len(segments_to_optimize)} segments of type '{feature_type}'. Nozzle before block: {current_nozzle_xyz}")
+
+                nozzle_pos_before_this_feature_block = current_nozzle_xyz
+
+                # Apply Nearest Neighbor + 2-opt optimization
+                optimized_nn_order = optimize_extrude_segments_order_nn(segments_to_optimize, nozzle_pos_before_this_feature_block)
+                # print(f"Layer {i+1}, {feature_type}: Applying 2-opt refinement to {len(optimized_nn_order)} segments.")
+                optimized_final_order = apply_2opt_to_segment_order(optimized_nn_order, nozzle_pos_before_this_feature_block)
+
+                # Regenerate G-code for the optimized block, including travel moves
+                regenerated_feature_block_cmds = regenerate_gcode_for_layer(optimized_final_order, nozzle_pos_before_this_feature_block, layer_z_this_layer)
+                final_optimized_gcode_commands.extend(regenerated_feature_block_cmds)
+
+                # Update current_nozzle_xyz from the very end of this feature block
+                if regenerated_feature_block_cmds:
+                    last_cmd_in_block = regenerated_feature_block_cmds[-1]
+                    if last_cmd_in_block.x is not None and last_cmd_in_block.y is not None and last_cmd_in_block.z is not None:
+                        current_nozzle_xyz = (last_cmd_in_block.x, last_cmd_in_block.y, last_cmd_in_block.z)
+                    # print(f"Debug: Layer {i+1}, {feature_type}: Finished. Nozzle at: {current_nozzle_xyz}")
             
             # Reassembly: Leading non-extrude -> Optimized extrude block -> Trailing non-extrude
             leading_cmds = []
@@ -518,8 +680,11 @@ def optimize_gcode_travel(input_gcode_lines):
                         temp_pos_tracker = segments_in_layer[seg_idx].end_point_xyz
                 nozzle_pos_before_opt_block = temp_pos_tracker
 
-                optimized_extrude_order = optimize_extrude_segments_order_nn(extrude_segments_this_layer, nozzle_pos_before_opt_block)
-                regenerated_extrude_block_cmds = regenerate_gcode_for_layer(optimized_extrude_order, nozzle_pos_before_opt_block, layer_z_this_layer)
+                optimized_nn_order = optimize_extrude_segments_order_nn(segments_to_optimize, nozzle_pos_before_opt_block)
+                print(f"Layer {i+1}: Applying 2-opt refinement to {len(optimized_nn_order)} segments.")
+                optimized_final_order = apply_2opt_to_segment_order(optimized_nn_order, nozzle_pos_before_opt_block)
+
+                regenerated_extrude_block_cmds = regenerate_gcode_for_layer(optimized_final_order, nozzle_pos_before_opt_block, layer_z_this_layer)
 
                 for seg_idx in range(last_extrude_idx_in_layer + 1, len(segments_in_layer)):
                     trailing_cmds.extend(segments_in_layer[seg_idx].commands)
@@ -552,12 +717,12 @@ def optimize_gcode_travel(input_gcode_lines):
     final_optimized_gcode_commands.extend(postamble_commands)
     print(f"Added {len(postamble_commands)} postamble commands.")
 
-    # 5. Eliminate Redundant Moves (globally)
+    # 5. Eliminate Redundant Moves (globally, after reassembly)
     final_gcode_after_redundancy_elim = eliminate_redundant_travel_moves_in_list(final_optimized_gcode_commands)
     print(f"\nApplied redundant move elimination. Original cmd count: {len(final_optimized_gcode_commands)}, New count: {len(final_gcode_after_redundancy_elim)}")
 
     # Convert back to raw GCode lines for output
-    output_gcode_lines = [cmd.raw_line for cmd in final_gcode_after_redundancy_elim if cmd.raw_line] # Ensure no empty lines from parsing
+    output_gcode_lines = [cmd.original_line for cmd in final_gcode_after_redundancy_elim if cmd.original_line] # Ensure no empty lines from parsing
 
     print(f"Optimization complete. Output GCode has {len(output_gcode_lines)} lines.")
     return output_gcode_lines
@@ -573,15 +738,18 @@ if __name__ == "__main__":
         "M104 S200 T0 ; Set extruder temp",
         "M109 S200 T0 ; Wait for extruder temp",
         "G28 ; Home all axes",
-        "G1 Z5 F5000 ; Lift Z",
+        "G1 Z5 F5000 ; Lift Z after homing",
         ";LAYER_COUNT:2",
         ";LAYER:0",
         "M106 S255 ; Fan On",
+        ";TYPE:PERIMETER",
         "G0 F6000 X10 Y10 Z0.2 ; Travel to start of layer 1, part 1",
         "G1 F1200 X20 Y10 E1.0 ; Extrude segment 1.1",
         "G1 X20 Y20 E2.0",
         "G1 X10 Y20 E3.0",
+        ";TYPE:INFILL",
         "G0 F6000 X50 Y50 Z0.2 ; Travel to segment 1.2 (far)",
+        ";TYPE:INFILL", # Type comment can be on any line, ideally before the first command of the feature
         "G1 F1200 X60 Y50 E4.0 ; Extrude segment 1.2",
         "G1 X60 Y60 E5.0",
         "G1 X50 Y60 E6.0",
@@ -589,6 +757,7 @@ if __name__ == "__main__":
         "G1 F1200 X20.5 Y20.5 E7.0 ; Extrude segment 1.3",
         "G1 X20.5 Y10.5 E8.0",
         "G1 X10.5 Y10.5 E9.0",
+        ";TYPE:PERIMETER", # Another perimeter segment
         ";LAYER:1",
         "G0 F6000 X10 Y10 Z0.4 ; Travel to start of layer 2",
         "G1 F1200 X30 Y10 E10.0 ; Extrude segment 2.1",
@@ -611,4 +780,3 @@ if __name__ == "__main__":
     print("\n--- Optimized GCode (Conceptual) ---")
     for line_num, line in enumerate(optimized_gcode):
         print(f"{line_num+1:03d}: {line}")
-
