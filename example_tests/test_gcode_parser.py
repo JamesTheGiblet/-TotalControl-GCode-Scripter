@@ -1,59 +1,75 @@
-# example_tests/test_gcode_parser.py
 import logging
 import pytest
 
 logger = logging.getLogger(__name__)
 
-# Imagine this is a function from your TotalControl project
+# Function under test (from TotalControl project)
 def parse_gcode_line(line: str) -> dict:
     """Parses a simple G-code line."""
     logger.info(f"Attempting to parse G-code line: '{line}'")
     if not line.strip():
         logger.warning("Received empty G-code line.")
         raise ValueError("Empty G-code line")
+    
     parts = line.upper().split()
     command = parts[0]
     params = {}
+
     for part in parts[1:]:
-        if not part: continue
+        if not part:
+            continue
         try:
             params[part[0]] = float(part[1:])
         except (ValueError, IndexError) as e:
             logger.error(f"Error parsing parameter '{part}' in line '{line}': {e}")
             raise ValueError(f"Invalid parameter format: {part}")
-    
+
     logger.debug(f"Parsed command: {command}, params: {params}")
     return {"command": command, "params": params}
 
-def test_parse_g1_move():
-    """Test parsing a G1 movement command."""
+# --- TESTS ---
+
+def test_parse_g1_move(test_logger):
     line = "G1 X10 Y20.5 F3000"
-    logger.info(f"Starting test_parse_g1_move with line: '{line}'")
+    test_logger.info(f"Testing G1 move: '{line}'")
     expected = {"command": "G1", "params": {"X": 10.0, "Y": 20.5, "F": 3000.0}}
     result = parse_gcode_line(line)
     assert result == expected
-    logger.info("test_parse_g1_move PASSED")
+    test_logger.info("✅ test_parse_g1_move passed")
 
-def test_parse_empty_line():
-    """Test parsing an empty line, expecting an error."""
-    logger.info("Starting test_parse_empty_line")
+def test_parse_empty_line(test_logger):
+    test_logger.info("Testing empty G-code line")
     with pytest.raises(ValueError, match="Empty G-code line"):
         parse_gcode_line("   ")
-    logger.info("test_parse_empty_line PASSED (ValueError correctly raised)")
+    test_logger.info("✅ test_parse_empty_line passed")
 
-def test_parse_invalid_param():
-    """Test parsing a line with an invalid parameter."""
+def test_parse_invalid_param(test_logger):
     line = "G1 X10 YINVALID"
-    logger.info(f"Starting test_parse_invalid_param with line: '{line}'")
+    test_logger.info(f"Testing invalid parameter: '{line}'")
     with pytest.raises(ValueError, match="Invalid parameter format: YINVALID"):
         parse_gcode_line(line)
-    logger.info("test_parse_invalid_param PASSED (ValueError correctly raised for invalid param)")
+    test_logger.info("✅ test_parse_invalid_param passed")
 
-def test_parse_g0_move():
-    """Test parsing a G0 movement command."""
+def test_parse_g0_move(test_logger):
     line = "G0 X5 Y10"
-    logger.info(f"Starting test_parse_g0_move with line: '{line}'")
+    test_logger.info(f"Testing G0 move: '{line}'")
     expected = {"command": "G0", "params": {"X": 5.0, "Y": 10.0}}
     result = parse_gcode_line(line)
     assert result == expected
-    logger.info("test_parse_g0_move PASSED")
+    test_logger.info("✅ test_parse_g0_move passed")
+
+# Optional: catch malformed or partial commands
+@pytest.mark.parametrize("bad_line", [
+    "G1 X",         # Missing value
+    "G2 R",         # Missing number
+    "M104 Sabc",    # Invalid float
+    "T0 ; Comment", # Valid prefix but invalid if semicolon not handled
+], ids=["missing_value", "radius_missing", "bad_float", "comment_conflict"])
+
+def test_invalid_lines(bad_line, test_logger):
+    test_logger.info(f"Testing malformed line: '{bad_line}'")
+    with pytest.raises(ValueError):
+        parse_gcode_line(bad_line)
+    test_logger.info(f"✅ test_invalid_lines passed for: '{bad_line}'")
+    # This test is expected to fail if the function does not handle the case
+    # properly. Adjust the function to handle these cases if necessary.
