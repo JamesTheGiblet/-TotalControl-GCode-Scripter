@@ -24,19 +24,18 @@ class GCodeCommand:
         return f"GCodeCommand({self.raw_line})"
 
     @classmethod
-    def parse(cls, line, current_e_value=0.0):
+    def parse(cls, line, current_e_value=0.0, last_motion_e=0.0):
         """
-        Parses a single GCode line.
-        A more robust parser would handle comments better, various command syntaxes,
-        and maintain more state (like last known E for G1 extrusion detection).
+        Parses a single GCode line, tracking extruder state based on the
+        E parameter and comparing it to the E value of the last motion command.
         """
         line_stripped = line.strip()
         if not line_stripped or line_stripped.startswith(';'):
-            return cls(raw_line=line_stripped) # Keep comments and empty lines as is
+            return cls(raw_line=line_stripped)
 
-        parts = line_stripped.split(';')[0].strip().split() # Remove comments first, then split
-        if not parts: # Line was only a comment
-             return cls(raw_line=line_stripped)
+        parts = line_stripped.split(';')[0].strip().split()
+        if not parts:
+            return cls(raw_line=line_stripped)
 
         cmd_type = parts[0].upper()
         params = {}
@@ -45,7 +44,7 @@ class GCodeCommand:
 
         for part in parts[1:]:
             code = part[0].upper()
-            if not part[1:]: # Handle case like "G0 X10 Y" (malformed, but be robust)
+            if not part[1:]:
                 continue
             try:
                 value = float(part[1:])
@@ -56,19 +55,12 @@ class GCodeCommand:
                 elif code == 'E': e_val = value
                 elif code == 'F': f_val = value
             except ValueError:
-                # For non-float params or if parsing fails for a specific param
                 params[code] = part[1:]
 
-
-        # Determine if it's an extruding move (simplified)
-        # G1, G2, G3 can be extruding moves.
-        # A common way to check is if E is present and its value is greater than the previous E.
-        # This requires tracking the previous E value.
+        # An extruding move for deposition purposes is a G1/G2/G3 command where E increases.
         if cmd_type in ['G1', 'G2', 'G3'] and e_val is not None:
-            if e_val > current_e_value: # Simple check: positive E increment means extrusion
+            if e_val > last_motion_e + 1e-5:  # e_val must be strictly greater for deposition
                 is_extruding_move = True
-            # Note: Retractions (E < current_e_value) are G1 moves but not 'extruding' for path planning.
-            # Slicers might also use G1 without E for travel if feedrate is high.
 
         return cls(raw_line=line_stripped, command_type=cmd_type, params=params,
                    is_extruding=is_extruding_move, x=x, y=y, z=z, e=e_val, f=f_val)
@@ -88,45 +80,28 @@ class PrintSegment:
         Determines the start and end coordinates of the segment.
         This needs to track the current X, Y, Z state through the commands.
         For simplicity, assumes commands provide absolute coordinates or they are resolved by parser.
+        Relies on GCodeCommand.x, .y, .z being pre-resolved to absolute coordinates
+        by the parse_gcode_lines function.
         """
-        # This is a simplified endpoint calculation. A full GCode interpreter
-        # would track the machine state (current_x, current_y, current_z) more rigorously.
-        temp_x, temp_y, temp_z = None, None, None
+        if not self.commands:
+            return
 
-        # Find first coordinate
-        for cmd in self.commands:
-            if cmd.x is not None: temp_x = cmd.x
-            if cmd.y is not None: temp_y = cmd.y
-            if cmd.z is not None: temp_z = cmd.z
-            if self.start_point_xyz is None and temp_x is not None and temp_y is not None and temp_z is not None:
-                self.start_point_xyz = (temp_x, temp_y, temp_z)
-            # Update cmd objects with resolved coordinates if they were missing (e.g. G1 Y10 after G0 X5)
-            # This part is complex and requires proper state machine for GCode.
-            # For now, we assume GCodeCommand.parse fills x,y,z if present in the line.
-            # If a command only has Y, its X and Z are modal (from previous command).
-            # The GCodeCommand objects should ideally store their *effective* X,Y,Z after parsing.
+        # Start point is from the first command's resolved coordinates
+        first_cmd = self.commands[0]
+        if first_cmd.x is not None and first_cmd.y is not None and first_cmd.z is not None:
+            self.start_point_xyz = (first_cmd.x, first_cmd.y, first_cmd.z)
+        # else: start_point_xyz remains None if first command has no fully defined coords.
+        # This might occur for segments starting with non-positional commands, though
+        # group_layer_commands_into_segments typically groups motion commands.
 
-        # Last known X,Y,Z becomes the end_point
-        # Re-iterate to get the final state after all commands in segment
-        final_x, final_y, final_z = None, None, None
-        # If segment starts with a Z move, that Z should be the layer Z
-        if self.commands and self.commands[0].z is not None:
-            final_z = self.commands[0].z
+        # End point is from the last command's resolved coordinates
+        last_cmd = self.commands[-1]
+        if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
+            self.end_point_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
 
-        for cmd in self.commands:
-            if cmd.x is not None: final_x = cmd.x
-            if cmd.y is not None: final_y = cmd.y
-            if cmd.z is not None: final_z = cmd.z # Z usually changes per layer, but is const within a 2.5D segment
-
-            if self.start_point_xyz is None and final_x is not None and final_y is not None and final_z is not None:
-                 self.start_point_xyz = (final_x, final_y, final_z)
-
-
-        if final_x is not None and final_y is not None and final_z is not None:
-            self.end_point_xyz = (final_x, final_y, final_z)
-        
-        # If only one command, start and end might be the same if it's a point-like operation
-        if self.start_point_xyz and not self.end_point_xyz and len(self.commands) == 1:
+        # If a segment is a single point-like operation or a non-moving command sequence
+        # where start is known but end isn't explicitly different.
+        if self.start_point_xyz and not self.end_point_xyz:
             self.end_point_xyz = self.start_point_xyz
 
 
@@ -139,26 +114,25 @@ class PrintSegment:
 def parse_gcode_lines(gcode_lines):
     """Parses a list of GCode strings into GCodeCommand objects, tracking extruder state."""
     parsed_commands = []
-    current_e = 0.0 # Track last E value
-    current_x, current_y, current_z = None, None, None # Track current position
+    current_e = 0.0  # Track last E value
+    current_x, current_y, current_z = None, None, None  # Track current position
+    last_motion_e = 0.0 # Track E value of the last G0/G1/G2/G3
 
     for line_num, line_str in enumerate(gcode_lines):
-        cmd = GCodeCommand.parse(line_str, current_e)
+        cmd = GCodeCommand.parse(line_str, current_e, last_motion_e)
 
-        # Update current position state based on the parsed command
-        # This is crucial for commands that only specify some axes (e.g., G1 Y10)
         effective_x = cmd.x if cmd.x is not None else current_x
         effective_y = cmd.y if cmd.y is not None else current_y
         effective_z = cmd.z if cmd.z is not None else current_z
-        
-        # Update the command object with its effective coordinates
+
         cmd.x, cmd.y, cmd.z = effective_x, effective_y, effective_z
-        
-        # Update state for next command
+
         current_x, current_y, current_z = effective_x, effective_y, effective_z
         if cmd.e is not None:
             current_e = cmd.e
-        
+            if cmd.command_type in ['G0', 'G1', 'G2', 'G3']:
+                last_motion_e = cmd.e
+
         parsed_commands.append(cmd)
     return parsed_commands
 
@@ -168,41 +142,40 @@ def segment_gcode_into_layers(parsed_commands):
     A simple heuristic: a new layer starts with a Z move after some extrusion,
     or specific layer comments like ';LAYER:N'.
     This is a placeholder for more robust layer detection from Phase 1 or slicer comments.
+    This function expects commands that are part of the printable body (post-preamble, pre-postamble).
     """
     layers = []
     current_layer_commands = []
-    last_significant_z = None # Z value of the current layer being built
+    last_layer_defining_z = None # Z value that defined the start of the current layer segment
+    
+    # Determine if explicit layer comments are used
+    has_explicit_layer_comments = any(cmd.raw_line.startswith(";LAYER:") for cmd in parsed_commands)
 
     for cmd in parsed_commands:
-        is_layer_delimiter_comment = cmd.raw_line.startswith(";LAYER:") or \
-                                     cmd.raw_line.startswith(";LAYER_CHANGE") or \
-                                     cmd.raw_line.startswith(";Z:") # Common slicer comments
+        is_new_layer_boundary = False
+        if has_explicit_layer_comments:
+            if cmd.raw_line.startswith(";LAYER:"):
+                if current_layer_commands: # New layer starts here
+                    is_new_layer_boundary = True
+        else: # Fallback to Z-based segmentation
+            if cmd.command_type in ['G0', 'G1'] and cmd.z is not None:
+                if current_layer_commands: # Only consider new layer if current one has content
+                    if last_layer_defining_z is None or cmd.z > last_layer_defining_z + 1e-3:
+                        is_new_layer_boundary = True
 
-        new_layer_by_z_move = False
-        if cmd.command_type in ['G0', 'G1'] and cmd.z is not None:
-            if last_significant_z is None or cmd.z > last_significant_z + 1e-3: # Z increased
-                if current_layer_commands: # Only if there were commands in previous layer segment
-                    new_layer_by_z_move = True
-            # Update last_significant_z if this command sets Z
-            # This ensures that subsequent commands in the same layer don't trigger a new layer
-            # if they also happen to have Z (e.g. G0 X10 Y10 Z0.2 followed by G1 X20 Y10 Z0.2 E1)
-            # last_significant_z = cmd.z # This was causing issues. Only update when new layer is FORMED.
-
-
-        if (is_layer_delimiter_comment or new_layer_by_z_move) and current_layer_commands:
+        if is_new_layer_boundary:
             layers.append(current_layer_commands)
             current_layer_commands = []
-            if cmd.z is not None: # If this command triggered the new layer by Z move
-                last_significant_z = cmd.z
-
+            last_layer_defining_z = None # Reset for the new layer
 
         current_layer_commands.append(cmd)
-        # If this command itself sets a Z that defines the start of a new layer, update last_significant_z
-        if new_layer_by_z_move and cmd.z is not None:
-             last_significant_z = cmd.z
-        elif is_layer_delimiter_comment and cmd.z is not None: # If comment also has Z info
-             last_significant_z = cmd.z
-
+        # Update last_layer_defining_z if this command sets a Z for the current layer segment
+        if cmd.command_type in ['G0', 'G1'] and cmd.z is not None:
+            if last_layer_defining_z is None: # First Z for this layer segment
+                last_layer_defining_z = cmd.z
+            elif has_explicit_layer_comments and cmd.raw_line.startswith(";LAYER:"):
+                # If it's an explicit layer comment on a Z move, that Z defines the new layer
+                last_layer_defining_z = cmd.z
 
     if current_layer_commands: # Add the last layer
         layers.append(current_layer_commands)
@@ -370,52 +343,48 @@ def regenerate_gcode_for_layer(ordered_extrude_segments, initial_nozzle_xyz, lay
 
 
 def eliminate_redundant_travel_moves_in_list(gcode_command_list):
-    """Identifies and eliminates redundant G0 movements from a list of GCodeCommand objects."""
+    """Identifies and eliminates consecutive redundant G0 movements."""
     if not gcode_command_list:
         return []
 
     final_commands = []
-    last_g0_cmd_params = None # Store params of last G0 to compare
-    current_x, current_y, current_z = None, None, None # Track printer head position from all moves
+    last_motion_command = None
 
-    for cmd_idx, cmd in enumerate(gcode_command_list):
-        is_redundant = False
+    for cmd in gcode_command_list:
+        is_redundant = False        
         if cmd.command_type == 'G0':
-            # Check 1: Exact duplicate of previous G0 (same params, not just raw line)
-            # This is tricky if params order changes but effectively same.
-            # A simpler check: if this G0 moves to where we already are.
+            # A G0 is redundant if it moves to the same X,Y,Z as the last motion command's target
+            # AND it doesn't set a new feedrate (F).
+            # The cmd.x, cmd.y, cmd.z are the resolved absolute coordinates for this G0.
+            # last_motion_command.x, .y, .z are the resolved absolute target coordinates of the previous motion command.
+            if last_motion_command and last_motion_command.command_type in ['G0', 'G1', 'G2', 'G3']:
+                # Check if all specified coordinates in the current G0 match the last motion command's target
+                # and that the current G0 doesn't introduce a feedrate change.
+                
+                # Assume not moved unless a specified coordinate differs
+                moved_x = cmd.x is not None and (last_motion_command.x is None or abs(cmd.x - last_motion_command.x) > 1e-5)
+                moved_y = cmd.y is not None and (last_motion_command.y is None or abs(cmd.y - last_motion_command.y) > 1e-5)
+                moved_z = cmd.z is not None and (last_motion_command.z is None or abs(cmd.z - last_motion_command.z) > 1e-5)
 
-            # Check 2: Moves to current known X, Y, Z without other effect (like changing F)
-            # This requires accurate current_x, current_y, current_z tracking.
-            target_x = cmd.x if cmd.x is not None else current_x
-            target_y = cmd.y if cmd.y is not None else current_y
-            target_z = cmd.z if cmd.z is not None else current_z # Z might not be in G0 if it's within layer travel
-
-            # If all specified axes in the G0 match the current position
-            moved = False
-            if cmd.x is not None and (current_x is None or abs(cmd.x - current_x) > 1e-3): moved = True
-            if cmd.y is not None and (current_y is None or abs(cmd.y - current_y) > 1e-3): moved = True
-            if cmd.z is not None and (current_z is None or abs(cmd.z - current_z) > 1e-3): moved = True
-            
-            if not moved:
-                # If no positional change, is it just an F-set? If so, not redundant.
-                # If it has X,Y,Z and they don't change position, AND no F, it's redundant.
-                if cmd.f is None: # Or if cmd.f is same as current feedrate (needs more state)
+                # If any axis is specified in G0 and it's different, it's a move.
+                # If an axis is NOT specified in G0, it implies no change for that axis from the G0's perspective.
+                # Redundancy means: for all axes specified in G0, they match the last target, AND no new F.
+                
+                is_same_target_location = True
+                if cmd.x is not None and (last_motion_command.x is None or abs(cmd.x - last_motion_command.x) > 1e-5): is_same_target_location = False
+                if cmd.y is not None and (last_motion_command.y is None or abs(cmd.y - last_motion_command.y) > 1e-5): is_same_target_location = False
+                if cmd.z is not None and (last_motion_command.z is None or abs(cmd.z - last_motion_command.z) > 1e-5): is_same_target_location = False
+                
+                if is_same_target_location and cmd.f is None:
                     is_redundant = True
-                # If it's G0 without X,Y,Z,F (empty G0), it's redundant.
-                if cmd.x is None and cmd.y is None and cmd.z is None and cmd.f is None and cmd.command_type == 'G0':
+                
+                # Also, an empty G0 (no X,Y,Z,F) is redundant
+                if cmd.x is None and cmd.y is None and cmd.z is None and cmd.f is None:
                     is_redundant = True
-
 
         if not is_redundant:
             final_commands.append(cmd)
-            # Update current position from any G0/G1 command that was kept
-            if cmd.command_type in ['G0', 'G1']:
-                if cmd.x is not None: current_x = cmd.x
-                if cmd.y is not None: current_y = cmd.y
-                if cmd.z is not None: current_z = cmd.z
-        # else:
-            # print(f"Redundant move eliminated: {cmd.raw_line} (current pos: {current_x},{current_y},{current_z})")
+            last_motion_command = cmd if cmd.command_type in ['G0', 'G1', 'G2', 'G3'] else last_motion_command
 
     return final_commands
 
@@ -427,34 +396,68 @@ def optimize_gcode_travel(input_gcode_lines):
     print(f"Phase 2: AI-Driven Path Optimization - Initial Travel Minimization")
     print(f"Input GCode has {len(input_gcode_lines)} lines.")
 
-    # 1. Parse GCode into GCodeCommand objects with resolved coordinates
-    parsed_commands = parse_gcode_lines(input_gcode_lines)
-    print(f"Parsed {len(parsed_commands)} GCode commands with coordinate resolution.")
+    # 1. Parse all GCode lines
+    all_parsed_commands = parse_gcode_lines(input_gcode_lines)
+    print(f"Parsed {len(all_parsed_commands)} GCode commands with coordinate resolution.")
 
-    # 2. Segment by Layer
-    gcode_layers = segment_gcode_into_layers(parsed_commands)
-    print(f"Segmented into {len(gcode_layers)} layers.")
+    # 2. Identify Preamble, Body, and Postamble
+    preamble_commands = []
+    body_commands = []
+    postamble_commands = []
+    
+    first_layer_marker_idx = -1
+    # Find first ";LAYER:" comment or first G0/G1 to a typical print Z after initial setup
+    # This is a heuristic and might need adjustment based on G-code conventions
+    for i, cmd in enumerate(all_parsed_commands):
+        if cmd.raw_line.startswith(";LAYER:"):
+            first_layer_marker_idx = i
+            break
+        # Add more heuristics if needed, e.g., first G0 X Y Z after G28 and M109
+    
+    if first_layer_marker_idx == -1: # No explicit layer markers, assume all is body (simplification)
+        print("Warning: No explicit ';LAYER:' comments found. Treating all commands as body after initial G28/lift if any.")
+        # Attempt to find end of preamble by looking for first significant XY move at low Z
+        g28_found = any(c.command_type == 'G28' for c in all_parsed_commands)
+        for i, cmd in enumerate(all_parsed_commands):
+            if g28_found and cmd.command_type in ['G0','G1'] and cmd.x is not None and cmd.y is not None and cmd.z is not None and cmd.z < 5.0 : # Arbitrary low Z
+                first_layer_marker_idx = i
+                break
+        if first_layer_marker_idx == -1 : first_layer_marker_idx = 0
+
+
+    last_layer_related_cmd_idx = len(all_parsed_commands) -1
+    # Find last command related to printing (e.g., last G1 E, or last command of last layer comment block)
+    # Heuristic: postamble starts after last G1 E, or with M107, G28, M84 etc.
+    for i in range(len(all_parsed_commands) - 1, first_layer_marker_idx -1, -1):
+        cmd = all_parsed_commands[i]
+        if cmd.command_type == 'G1' and cmd.is_extruding:
+            last_layer_related_cmd_idx = i
+            # Extend to include subsequent non-extruding moves or M-codes of that layer (e.g. M107)
+            for j in range(i + 1, len(all_parsed_commands)):
+                next_cmd = all_parsed_commands[j]
+                if next_cmd.command_type in ['G28', 'M2', 'M84'] or \
+                   (next_cmd.command_type == 'G1' and next_cmd.z is not None and next_cmd.x is None and next_cmd.y is None and next_cmd.e is None): # Final Z lift
+                    break # This is postamble
+                last_layer_related_cmd_idx = j
+            break
+
+    preamble_commands = all_parsed_commands[:first_layer_marker_idx]
+    body_commands = all_parsed_commands[first_layer_marker_idx : last_layer_related_cmd_idx + 1]
+    postamble_commands = all_parsed_commands[last_layer_related_cmd_idx + 1 :]
+
+    print(f"Identified Preamble: {len(preamble_commands)} cmds, Body: {len(body_commands)} cmds, Postamble: {len(postamble_commands)} cmds.")
 
     final_optimized_gcode_commands = []
+    final_optimized_gcode_commands.extend(preamble_commands)
+
     current_nozzle_xyz = (0.0, 0.0, 0.0) # Assume starting at origin or track from GCode preamble
+    for cmd in preamble_commands: # Update nozzle position from preamble
+        if cmd.x is not None and cmd.y is not None and cmd.z is not None: # If G0/G1 sets position
+            current_nozzle_xyz = (cmd.x, cmd.y, cmd.z)
 
-    # Handle GCode preamble (commands before the first layer)
-    if gcode_layers:
-        first_cmd_of_first_layer = gcode_layers[0][0]
-        preamble_end_idx = -1
-        for idx, cmd in enumerate(parsed_commands):
-            if cmd == first_cmd_of_first_layer:
-                preamble_end_idx = idx
-                break
-        if preamble_end_idx != -1:
-            preamble_commands = parsed_commands[:preamble_end_idx]
-            final_optimized_gcode_commands.extend(preamble_commands)
-            # Update nozzle position from preamble
-            for cmd in preamble_commands:
-                if cmd.x is not None and cmd.y is not None and cmd.z is not None:
-                    current_nozzle_xyz = (cmd.x, cmd.y, cmd.z)
-            print(f"Added {len(preamble_commands)} preamble commands. Nozzle at: {current_nozzle_xyz}")
-
+    # 3. Segment Body into Layers
+    gcode_layers = segment_gcode_into_layers(body_commands)
+    print(f"Segmented body into {len(gcode_layers)} layers.")
 
     for i, layer_cmds_list in enumerate(gcode_layers):
         print(f"\nProcessing Layer {i+1} with {len(layer_cmds_list)} commands...")
@@ -463,7 +466,7 @@ def optimize_gcode_travel(input_gcode_lines):
             continue
 
         # Determine layer's Z height (most common Z in G0/G1 moves of this layer)
-        # A more robust way: from ';LAYER:Z:value' or first G0/G1 Z move.
+        # Heuristic: use Z from first G0/G1 command in the layer, or carry over.
         layer_z_this_layer = current_nozzle_xyz[2] # Default to previous Z
         z_values_in_layer = [cmd.z for cmd in layer_cmds_list if cmd.z is not None and cmd.command_type in ['G0','G1']]
         if z_values_in_layer:
@@ -472,74 +475,82 @@ def optimize_gcode_travel(input_gcode_lines):
             layer_z_this_layer = z_values_in_layer[0]
         print(f"Layer {i+1} Z determined/assumed as: {layer_z_this_layer}")
 
-
         # Group commands in the current layer into PrintSegments
         segments_in_layer = group_layer_commands_into_segments(layer_cmds_list)
         
-        extrude_segments = [s for s in segments_in_layer if s.segment_type == "extrude" and s.start_point_xyz and s.end_point_xyz]
-        # Keep other segments (travel, M-codes, comments) to re-insert later
-        non_extrude_segments_map = {idx: s for idx, s in enumerate(segments_in_layer) if s.segment_type != "extrude"}
+        extrude_segments_this_layer = [s for s in segments_in_layer if s.segment_type == "extrude" and s.start_point_xyz and s.end_point_xyz]
         
-        print(f"Layer {i+1}: Found {len(extrude_segments)} extrude segments to optimize.")
-
-        if not extrude_segments:
-            print(f"Layer {i+1}: No extrude segments. Adding original layer commands.")
+        if not extrude_segments_this_layer:
+            print(f"Layer {i+1}: No extrude segments to optimize. Adding original layer commands.")
             final_optimized_gcode_commands.extend(layer_cmds_list)
             # Update nozzle position from last command in this layer
-            for cmd in reversed(layer_cmds_list):
-                if cmd.x is not None and cmd.y is not None and cmd.z is not None:
-                    current_nozzle_xyz = (cmd.x, cmd.y, cmd.z)
-                    break
-            continue
+            if layer_cmds_list:
+                last_cmd_in_layer = layer_cmds_list[-1]
+                if last_cmd_in_layer.x is not None and last_cmd_in_layer.y is not None and last_cmd_in_layer.z is not None:
+                    current_nozzle_xyz = (last_cmd_in_layer.x, last_cmd_in_layer.y, last_cmd_in_layer.z)
+        else:
+            print(f"Layer {i+1}: Found {len(extrude_segments_this_layer)} extrude segments to optimize.")
+            
+            # Reassembly: Leading non-extrude -> Optimized extrude block -> Trailing non-extrude
+            leading_cmds = []
+            optimized_block_input_segments = []
+            trailing_cmds = []
+            
+            processing_phase = "leading" # leading, extrude_block, trailing
+            
+            # Determine nozzle position before the optimizable block
+            nozzle_pos_before_opt_block = current_nozzle_xyz 
+            # Iterate through original segments to build leading_cmds and update nozzle_pos_before_opt_block
+            temp_pos_tracker = current_nozzle_xyz
+            first_extrude_idx_in_layer = -1
+            last_extrude_idx_in_layer = -1
 
-        # The nozzle is at `current_nozzle_xyz` before processing this layer's extrusions
-        optimized_extrude_order = optimize_extrude_segments_order_nn(extrude_segments, current_nozzle_xyz)
-        
-        # Regenerate GCode for the printing parts of the layer
-        # The `current_nozzle_xyz` is where the nozzle is *before* the first travel to an extrude segment.
-        layer_print_gcode = regenerate_gcode_for_layer(optimized_extrude_order, current_nozzle_xyz, layer_z_this_layer)
-        
-        # This is a simplification: It doesn't re-insert 'other' or original 'travel' segments intelligently.
-        # A more robust solution would merge `layer_print_gcode` with `non_extrude_segments_map`
-        # based on their original relative ordering or specific rules.
-        # For now, we just use the newly generated GCode for the extrude parts.
-        # We should prepend any non-extrude, non-travel commands that were at the start of the layer.
-        
-        initial_non_extrude_cmds_for_layer = []
-        for seg_idx, seg in enumerate(segments_in_layer):
-            if seg.segment_type == "extrude":
-                break # Stop when first extrude segment is found
-            initial_non_extrude_cmds_for_layer.extend(seg.commands)
-        
-        final_optimized_gcode_commands.extend(initial_non_extrude_cmds_for_layer)
-        final_optimized_gcode_commands.extend(layer_print_gcode)
+            for seg_idx, seg in enumerate(segments_in_layer):
+                if seg.segment_type == "extrude":
+                    if first_extrude_idx_in_layer == -1:
+                        first_extrude_idx_in_layer = seg_idx
+                    last_extrude_idx_in_layer = seg_idx
+            
+            if first_extrude_idx_in_layer != -1:
+                for seg_idx in range(first_extrude_idx_in_layer):
+                    leading_cmds.extend(segments_in_layer[seg_idx].commands)
+                    if segments_in_layer[seg_idx].end_point_xyz:
+                        temp_pos_tracker = segments_in_layer[seg_idx].end_point_xyz
+                nozzle_pos_before_opt_block = temp_pos_tracker
 
-        # Update nozzle position from the end of the optimized layer printing
-        if layer_print_gcode:
-            last_cmd_optimized = layer_print_gcode[-1]
-            if last_cmd_optimized.x is not None and last_cmd_optimized.y is not None and last_cmd_optimized.z is not None:
-                 current_nozzle_xyz = (last_cmd_optimized.x, last_cmd_optimized.y, last_cmd_optimized.z)
-        elif initial_non_extrude_cmds_for_layer: # If only initial commands were added
-            last_cmd_initial = initial_non_extrude_cmds_for_layer[-1]
-            if last_cmd_initial.x is not None and last_cmd_initial.y is not None and last_cmd_initial.z is not None:
-                 current_nozzle_xyz = (last_cmd_initial.x, last_cmd_initial.y, last_cmd_initial.z)
+                optimized_extrude_order = optimize_extrude_segments_order_nn(extrude_segments_this_layer, nozzle_pos_before_opt_block)
+                regenerated_extrude_block_cmds = regenerate_gcode_for_layer(optimized_extrude_order, nozzle_pos_before_opt_block, layer_z_this_layer)
+
+                for seg_idx in range(last_extrude_idx_in_layer + 1, len(segments_in_layer)):
+                    trailing_cmds.extend(segments_in_layer[seg_idx].commands)
+
+                final_optimized_gcode_commands.extend(leading_cmds)
+                final_optimized_gcode_commands.extend(regenerated_extrude_block_cmds)
+                final_optimized_gcode_commands.extend(trailing_cmds)
+
+                # Update current_nozzle_xyz from the very end of this reassembled layer
+                if trailing_cmds:
+                    last_cmd = trailing_cmds[-1]
+                    if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
+                        current_nozzle_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
+                elif regenerated_extrude_block_cmds:
+                    last_cmd = regenerated_extrude_block_cmds[-1]
+                    if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
+                        current_nozzle_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
+                elif leading_cmds:
+                    last_cmd = leading_cmds[-1]
+                    if last_cmd.x is not None and last_cmd.y is not None and last_cmd.z is not None:
+                        current_nozzle_xyz = (last_cmd.x, last_cmd.y, last_cmd.z)
+                # else current_nozzle_xyz remains from before this layer if layer was all funny
+            else: # Should not happen if extrude_segments_this_layer is populated
+                final_optimized_gcode_commands.extend(layer_cmds_list) # Fallback
+                if layer_cmds_list and layer_cmds_list[-1].x is not None and layer_cmds_list[-1].y is not None and layer_cmds_list[-1].z is not None:
+                    current_nozzle_xyz = (layer_cmds_list[-1].x, layer_cmds_list[-1].y, layer_cmds_list[-1].z)
 
         print(f"Layer {i+1} processing finished. Nozzle at: {current_nozzle_xyz}")
 
-    # Handle GCode postamble (commands after the last layer)
-    # This logic is also simplified. Assumes last command of last layer is known.
-    if gcode_layers and parsed_commands:
-        last_cmd_of_last_layer = gcode_layers[-1][-1]
-        postamble_start_idx = -1
-        for idx, cmd in enumerate(parsed_commands):
-            if cmd == last_cmd_of_last_layer:
-                postamble_start_idx = idx + 1
-                break
-        if postamble_start_idx != -1 and postamble_start_idx < len(parsed_commands):
-            postamble_commands = parsed_commands[postamble_start_idx:]
-            final_optimized_gcode_commands.extend(postamble_commands)
-            print(f"Added {len(postamble_commands)} postamble commands.")
-
+    final_optimized_gcode_commands.extend(postamble_commands)
+    print(f"Added {len(postamble_commands)} postamble commands.")
 
     # 5. Eliminate Redundant Moves (globally)
     final_gcode_after_redundancy_elim = eliminate_redundant_travel_moves_in_list(final_optimized_gcode_commands)
@@ -601,10 +612,3 @@ if __name__ == "__main__":
     for line_num, line in enumerate(optimized_gcode):
         print(f"{line_num+1:03d}: {line}")
 
-    # Expected outcome (conceptual for the sample):
-    # - Preamble/Postamble should be preserved.
-    # - Within Layer 0: Segment 1.1 -> Segment 1.3 -> Segment 1.2 (if NN decides this order based on start points)
-    # - Travel moves (G0) between these reordered segments should be newly generated.
-    # - Within Layer 1: Redundant G0 moves should be removed.
-    # - M-codes like M106/M107 should ideally be preserved in their correct layer context.
-    #   (Current simplified reassembly might need improvement for this).
