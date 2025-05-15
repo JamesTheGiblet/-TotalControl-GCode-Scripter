@@ -10,12 +10,14 @@ from core.gcode_generator import generate_gcode_from_json
 from core.ai_optimizer import optimize_gcode
 from core.utils import parse_json_input
 import os
-from safety_limits import PrinterProfile, SafetyLimiter
+from modules.safety_limits import PrinterProfile, SafetyLimiter
 from strategies import apply_deposition_sequence_optimization # Import from the new module
 
 # Import the modules
 from modules.ai_pathing import generate_gcode_lattice, generate_gcode_honeycomb, apply_modifier, apply_constraint
+from modules.initialization import initialize_environment # Import the new initialization function
 
+from modules.example_data import json_example, material_properties, printer_capabilities # Import example data
 # Setup a logger for this module
 logger = logging.getLogger(__name__)
 
@@ -23,60 +25,29 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 # Example JSON input (same as before for demonstration)
-json_example = {
-    "path": {
-        "segments": [
-            {"type": "line", "start": [0, 0, 0], "end": [100, 0, 0]},
-            {"type": "arc", "center": [100, 50, 0], "radius": 50, "start_angle": 0, "end_angle": 90, "clockwise": True},
-            {"type": "bezier", "control_points": [[150, 50, 0], [200, 100, 50], [250, 50, 0]], "num_points": 20},
-            {"type": "spiral", "center": [0, 0, 0], "inner_radius": 10, "outer_radius": 50, "turns": 5, "pitch": 2},
-            {"type": "style", "style_type": "organic", "sub_segments": [{"type": "spiral", "center": [0, 0, 0], "inner_radius": 10, "outer_radius": 50, "turns": 5, "pitch": 2}]},
-            {"type": "repeat", "count": 3, "transform": {"rotate": ["z", 120]}, "segment": {"type": "line", "start": [0, 0, 0], "end": [50, 0, 0]}},
-            {"type": "structure", "structure_type": "lattice", "density": 0.6, "base_segment": {"type": "line", "start": [0, 0, 0], "end": [10, 10, 10]}}
-        ],
-        "modifiers": [
-            {"type": "offset", "distance": 5},
-            {"type": "smooth", "level": 2}
-        ],
-        "constraints": [
-            {"type": "connect", "previous_segment": True},
-            {"type": "tangent", "direction": [1, 0, 0]}
-        ]
-    }
-}
-
-# Example material properties
-material_properties = {
-    "name": "PLA",
-    "density": 1.24,
-    "viscosity": 100,
-    "thermal_conductivity": 0.13,
-    "glass_transition_temp": 60,
-    "max_flow_rate": 10,
-}
-
-# Example printer capabilities
-printer_capabilities = {
-    "max_acceleration": 500,
-    "max_jerk": 10,
-    "max_speed_x": 200,
-    "max_speed_y": 200,
-    "max_speed_z": 50,
-    "max_ext_speed": 50,
-    "nozzle_diameter": 0.4,
-}
 
 if __name__ == "__main__":
     logger.info("Starting G-code generation and optimization pipeline...")
 
     project_root = os.path.dirname(os.path.abspath(__file__))
-    default_printer_profile_path = os.path.join(project_root, "printer_profiles", "generic_fdm.json")
-    output_gcode_path_raw = os.path.join(project_root, "output_raw.gcode")
-    output_gcode_path_optimized = os.path.join(project_root, "output_optimized.gcode")
-    output_gcode_path_safe = os.path.join(project_root, "output_safe.gcode")
+
+    # Initialize environment: setup paths, validate inputs, create output directory
+    env_paths = initialize_environment(
+        project_root,
+        json_example,
+        material_properties,
+        printer_capabilities,
+        logger
+    )
+
+    default_printer_profile_path = env_paths["default_printer_profile_path"]
+    output_gcode_path_raw = env_paths["output_gcode_path_raw"]
+    output_gcode_path_optimized = env_paths["output_gcode_path_optimized"]
+    output_gcode_path_safe = env_paths["output_gcode_path_safe"]
 
     gcode_commands = []
     optimized_gcode = []
+    # safe_gcode = [] # This variable is initialized but not used later. Consider removing if not needed.
 
     try:
         # 1. Generate raw G-code
@@ -101,7 +72,8 @@ if __name__ == "__main__":
         optimized_gcode = optimize_gcode(gcode_commands, material_properties, printer_capabilities)
         logger.info(f"Successfully generated {len(optimized_gcode)} optimized G-code commands.")
         print("\nOptimized G-code:\n", "\n".join(optimized_gcode))
-        with open(output_gcode_path_optimized, 'w') as f:
+        # Save optimized G-code
+        with open(output_gcode_path_optimized, "w") as f: # Corrected path for saving optimized G-code
             for line in optimized_gcode:
                 f.write(line + "\n")
         logger.info(f"Optimized G-code saved to {output_gcode_path_optimized}")
@@ -137,7 +109,7 @@ if __name__ == "__main__":
                 print(f"\nFile not found error during safety limit application: {fnf_error}")
             except Exception as e:
                 logger.error(f"Error during safety limit application: {e}. Proceeding with original optimized G-code.", exc_info=True)
-                safe_gcode = list(optimized_gcode) # Fallback to original optimized G-code
+                # safe_gcode = list(optimized_gcode) # Fallback to original optimized G-code. 'safe_gcode' is not used.
                 print(f"\nError in safety limit application: {e}")
                 print(f"Proceeding with original optimized G-code.")
                 # Fallback: Write the original optimized G-code to the safe file
@@ -234,3 +206,6 @@ if __name__ == "__main__":
     else:
         logger.warning("No G-code commands generated. Skipping modifier/constraint demonstration.")
         print("\nNo G-code commands generated. Skipping modifier/constraint demonstration.")
+    logger.info("G-code generation and optimization pipeline completed.")
+    print("\nG-code generation and optimization pipeline completed.")
+    # End of the script

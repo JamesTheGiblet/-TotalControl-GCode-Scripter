@@ -1,5 +1,5 @@
 import logging
-from safety_limits import PrinterProfile # Import PrinterProfile from within the same package
+from modules.safety_limits import PrinterProfile # Import PrinterProfile from within the same package
 
  # Set up logging for this module
 logger = logging.getLogger(__name__)
