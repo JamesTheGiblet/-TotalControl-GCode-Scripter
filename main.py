@@ -7,9 +7,9 @@
 import json
 import logging # Added for logging
 from core.gcode_generator import generate_gcode_from_json
-from core.ai_optimizer import optimize_gcode
+from core.ai_optimizer import optimize_gcode # optimize_gcode now expects material_name
 from core.utils import parse_json_input
-import os
+import os, sys # Added sys for exit
 from modules.safety_limits import PrinterProfile, SafetyLimiter
 from strategies import apply_deposition_sequence_optimization # Import from the new module
 
@@ -17,25 +17,36 @@ from strategies import apply_deposition_sequence_optimization # Import from the 
 from modules.ai_pathing import generate_gcode_lattice, generate_gcode_honeycomb, apply_modifier, apply_constraint
 from modules.initialization import initialize_environment # Import the new initialization function
 
-from modules.example_data import json_example, material_properties, printer_capabilities # Import example data
+from modules.example_data import json_example, printer_capabilities # material_properties removed
+from materials.materials import get_material_properties # Import function to get material data
+
 # Setup a logger for this module
 logger = logging.getLogger(__name__)
 
 # Basic logging configuration for standalone execution
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
-# Example JSON input (same as before for demonstration)
 
 if __name__ == "__main__":
     logger.info("Starting G-code generation and optimization pipeline...")
 
     project_root = os.path.dirname(os.path.abspath(__file__))
 
+    # Define the material to be used for this run
+    active_material_name = "PLA" # Example, could be "ABS", "PETG", etc.
+    logger.info(f"Selected material for optimization: {active_material_name}")
+
+    # Load properties for the active material to pass to initialization (for validation)
+    active_material_data_for_init = get_material_properties(active_material_name)
+    if not active_material_data_for_init:
+        logger.error(f"Could not load properties for material '{active_material_name}'. Exiting.")
+        sys.exit(1)
+
     # Initialize environment: setup paths, validate inputs, create output directory
     env_paths = initialize_environment(
         project_root,
         json_example,
-        material_properties,
+        active_material_data_for_init, # Pass the specific material's data for validation
         printer_capabilities,
         logger
     )
@@ -64,12 +75,12 @@ if __name__ == "__main__":
 
         # 1.5 Apply deposition sequence optimization
         logger.info("Step 1.5: Applying deposition sequence optimization...")
-        gcode_commands = apply_deposition_sequence_optimization(gcode_commands)
+        gcode_commands = apply_deposition_sequence_optimization(gcode_commands, logger) # Pass logger
         logger.info("Deposition sequence optimization applied.")
 
         # 2. Optimize G-code using the AI optimizer
         logger.info("Step 2: Optimizing G-code...")
-        optimized_gcode = optimize_gcode(gcode_commands, material_properties, printer_capabilities)
+        optimized_gcode = optimize_gcode(gcode_commands, active_material_name, printer_capabilities)
         logger.info(f"Successfully generated {len(optimized_gcode)} optimized G-code commands.")
         print("\nOptimized G-code:\n", "\n".join(optimized_gcode))
         # Save optimized G-code
@@ -127,9 +138,7 @@ if __name__ == "__main__":
     except FileNotFoundError as fnf_error:
         logger.error(f"File not found error: {fnf_error}", exc_info=True)
         print(f"\nFile not found: {fnf_error}")
-    except json.JSONDecodeError as json_error:
-        logger.error(f"JSON decoding error: {json_error}", exc_info=True)
-        print(f"\nJSON decoding error: {json_error}")
+    # Removed duplicate json.JSONDecodeError catch block
     except KeyError as key_error:
         logger.error(f"KeyError: {key_error}", exc_info=True)
         print(f"\nKeyError: {key_error}")
@@ -197,15 +206,12 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Error during modifier/constraint demonstration: {e}", exc_info=True)
             print(f"\nError during modifier/constraint demonstration: {e}")
-        except KeyError as key_error:
-            logger.error(f"KeyError during modifier/constraint demonstration: {key_error}", exc_info=True)
-            print(f"\nKeyError in modifier/constraint demonstration: {key_error}")
-        except Exception as e:
-            logger.error(f"Unexpected error during modifier/constraint demonstration: {e}", exc_info=True)
-            print(f"\nUnexpected error in modifier/constraint demonstration: {e}")
+        # Removed duplicate KeyError catch block
     else:
         logger.warning("No G-code commands generated. Skipping modifier/constraint demonstration.")
         print("\nNo G-code commands generated. Skipping modifier/constraint demonstration.")
     logger.info("G-code generation and optimization pipeline completed.")
     print("\nG-code generation and optimization pipeline completed.")
     # End of the script
+    # Note: The script is designed to be modular and extensible. Future enhancements
+    # could include more sophisticated error handling, user input for material selection,

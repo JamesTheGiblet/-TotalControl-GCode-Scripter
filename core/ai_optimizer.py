@@ -9,6 +9,7 @@ import logging # Added for logging
 import re # Added for parsing
 import math # Added for distance calculation
 from core.constants import DEFAULT_FEEDRATE
+from materials.materials import get_material_properties # Import material database access
 
 # Setup a logger for this module
 logger = logging.getLogger(__name__)
@@ -187,14 +188,15 @@ def reconstruct_gcode_line(parsed_line: Dict) -> str:
 
 # 3. Function to optimize GCode commands based on printer and material properties.
 def optimize_gcode(gcode_commands: List[str],
-                   material_properties: dict,
+                   material_name: str, # Changed from material_properties dict
                    printer_capabilities: dict) -> List[str]:
     """
-    Optimizes GCode commands based on printer and material properties.
+    Applies AI-driven optimizations to GCode commands based on material
+    and printer capabilities.
 
     Args:
         gcode_commands: List of raw GCode strings.
-        material_properties: Dict of material properties.
+        material_name: Name of the material (e.g., "PLA").
         printer_capabilities: Dict of printer capabilities.
 
     Returns:
@@ -202,6 +204,25 @@ def optimize_gcode(gcode_commands: List[str],
     """
     # Initialize an empty list to store the optimized G-code commands
     optimized_gcode = []
+
+    current_material_props = get_material_properties(material_name)
+    if not current_material_props:
+        logger.warning(f"Material '{material_name}' not found in database. Using default optimization behaviors.")
+        # Fallback to default behavior if material properties are not found
+        feedrate_increase_factor = 1.2 # Default factor
+    else:
+        logger.info(f"Optimizing for material: {current_material_props.get('name', material_name)}")
+        viscosity_index = current_material_props.get("viscosity_index", 1.0)
+
+        # Example of using a material property:
+        # Adjust feedrate increase factor based on viscosity.
+        # This is a very simple model: higher viscosity -> less aggressive speed increase.
+        if viscosity_index > 1.1: # e.g., ABS in our example data
+            feedrate_increase_factor = 1.1 # Be slightly more conservative
+        elif viscosity_index < 0.9: # Hypothetical less viscous material
+            feedrate_increase_factor = 1.3 # Be slightly more aggressive
+        else: # e.g., PLA
+            feedrate_increase_factor = 1.2
 
     for line in gcode_commands:
         original_line = line # Keep a copy for fallback
@@ -223,14 +244,20 @@ def optimize_gcode(gcode_commands: List[str],
             # AI Placeholder: adjust parameters based on analysis
             # Get the original feedrate or use the default if not specified
             original_feedrate = params_val.get("F", DEFAULT_FEEDRATE)
-            # Example optimization: Increase feedrate by 20%, but cap it at the printer's max feedrate
+            # Example optimization: Increase feedrate by the calculated factor, but cap it at the printer's max feedrate
             # Ensure printer_capabilities has 'max_feedrate' or provide a sensible default
-            max_feed = printer_capabilities.get("max_feedrate", original_feedrate * 1.5) # Default to 1.5x if not specified
-            optimized_feedrate = min(original_feedrate * 1.2, max_feed)
+            max_feed = printer_capabilities.get("max_feedrate", original_feedrate * 1.5)
+            optimized_feedrate = min(original_feedrate * feedrate_increase_factor, max_feed)
             # Update the feedrate in the command dictionary
             params_val["F"] = optimized_feedrate
 
             # Future Placeholder: Use material_properties to adjust extrusion, cooling, etc.
+            # This is where geometric analysis results would be used:
+            # identified_features = analyze_geometric_features([line], logger) # Analyze this line or context around it
+            # if identified_features:
+            #     # Adjust extrusion/speed based on feature type, material, printer caps, etc.
+            #     pass
+
 
             # Reconstruct the G-code line with the optimized parameters
             optimized_line = reconstruct_gcode_line({"cmd": cmd_val, "params": params_val})
@@ -242,20 +269,23 @@ def optimize_gcode(gcode_commands: List[str],
     return optimized_gcode
 
 # 4. Function to apply AI-driven optimizations to G-code commands.
-def apply_ai_optimizations(gcode_lines: List[str], material_properties: dict, printer_capabilities: dict) -> List[str]:
+def apply_ai_optimizations(gcode_lines: List[str],
+                           material_name: str, # Changed
+                           printer_capabilities: dict) -> List[str]:
     """
     Applies AI-driven optimizations to G-code commands.
 
     Args:
         gcode_lines: List of raw G-code strings.
-        material_properties: Dict of material properties.
+        material_name: Name of the material (e.g., "PLA").
         printer_capabilities: Dict of printer capabilities.
 
     Returns:
         List of optimized G-code strings.
     """
-    logger.info("Applying AI-driven optimizations to G-code...")
-    optimized_gcode = optimize_gcode(gcode_lines, material_properties, printer_capabilities)
+    logger.info(f"Applying AI-driven optimizations to G-code for material: {material_name}...")
+    # Currently, this just calls optimize_gcode which does basic material-aware feedrate adjustment
+    optimized_gcode = optimize_gcode(gcode_lines, material_name, printer_capabilities)
     return optimized_gcode
 
 # Placeholder for geometric feature analysis
@@ -313,7 +343,7 @@ def analyze_geometric_features(gcode_lines: List[str], logger_instance: logging.
     for cmd_dict in parsed_commands:
         cmd = cmd_dict.get('command')
         line_num = cmd_dict.get('line_number')
-        
+
         # Get the position *before* this command executes
         segment_start_pos = current_pos
 
