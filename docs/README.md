@@ -80,7 +80,7 @@ The AI translates this input into optimized **print paths, extrusion rates, spee
 🚨 **Heuristic Anomaly Detection** – Rule-based identification of common print issues _(e.g., thin walls, overhang stability)_  
 🚨 **Reinforcement Learning from Past Prints** – AI refines settings based on historical success/failure patterns  
 🚨 **Automated Fixes & Live Adjustments** _(optional)_ – Suggested corrective actions before or during printing  
-
+ 
 ---
 
 ## 🖥️ **Integration & Use Cases**  

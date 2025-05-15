@@ -9,6 +9,9 @@ import logging # Added for logging
 from core.gcode_generator import generate_gcode_from_json
 from core.ai_optimizer import optimize_gcode
 from core.utils import parse_json_input
+import os
+from safety_limits import PrinterProfile, SafetyLimiter
+from strategies import apply_deposition_sequence_optimization # Import from the new module
 
 # Import the modules
 from modules.ai_pathing import generate_gcode_lattice, generate_gcode_honeycomb, apply_modifier, apply_constraint
@@ -66,22 +69,122 @@ printer_capabilities = {
 if __name__ == "__main__":
     logger.info("Starting G-code generation and optimization pipeline...")
 
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    default_printer_profile_path = os.path.join(project_root, "printer_profiles", "generic_fdm.json")
+    output_gcode_path_raw = os.path.join(project_root, "output_raw.gcode")
+    output_gcode_path_optimized = os.path.join(project_root, "output_optimized.gcode")
+    output_gcode_path_safe = os.path.join(project_root, "output_safe.gcode")
+
     gcode_commands = []
     optimized_gcode = []
 
     try:
-        # 1. Generate G-code from JSON input
+        # 1. Generate raw G-code
         logger.info("Step 1: Generating G-code from JSON input...")
         gcode_commands = generate_gcode_from_json(json_example)
         logger.info(f"Successfully generated {len(gcode_commands)} raw G-code commands.")
         print("Raw G-code:\n", "\n".join(gcode_commands))
+
+        # Save raw G-code
+        with open(output_gcode_path_raw, 'w') as f:
+            for line in gcode_commands:
+                f.write(line + "\n")
+        logger.info(f"Raw G-code saved to {output_gcode_path_raw}")
+
+        # 1.5 Apply deposition sequence optimization
+        logger.info("Step 1.5: Applying deposition sequence optimization...")
+        gcode_commands = apply_deposition_sequence_optimization(gcode_commands)
+        logger.info("Deposition sequence optimization applied.")
 
         # 2. Optimize G-code using the AI optimizer
         logger.info("Step 2: Optimizing G-code...")
         optimized_gcode = optimize_gcode(gcode_commands, material_properties, printer_capabilities)
         logger.info(f"Successfully generated {len(optimized_gcode)} optimized G-code commands.")
         print("\nOptimized G-code:\n", "\n".join(optimized_gcode))
+        with open(output_gcode_path_optimized, 'w') as f:
+            for line in optimized_gcode:
+                f.write(line + "\n")
+        logger.info(f"Optimized G-code saved to {output_gcode_path_optimized}")
 
+        # 2.5 Apply Safety Limits
+        logger.info(f"Step 2.5: Applying safety limits using profile: {default_printer_profile_path}...")
+        if not os.path.exists(default_printer_profile_path):
+            logger.error("Printer profile not found at %s. Skipping safety limits for optimized G-code.", default_printer_profile_path)
+            # If profile not found, just copy optimized to safe output
+            try:
+                with open(output_gcode_path_safe, 'w') as f_out:
+                    for line in optimized_gcode:
+                        f_out.write(line + "\n")
+                logger.info("Skipped safety limits. Original optimized G-code saved to %s.", output_gcode_path_safe)
+            except Exception as write_error:
+                logger.error("Error writing optimized G-code to safe output file when profile is missing: %s", write_error, exc_info=True)
+                print(f"\nError writing optimized G-code to safe output file when profile is missing: {write_error}")
+        else:
+            try:
+                printer_profile = PrinterProfile(default_printer_profile_path)
+                safety_limiter = SafetyLimiter(printer_profile)
+                
+                # Stream processing and writing
+                with open(output_gcode_path_safe, 'w') as f_out:
+                    for line in optimized_gcode:
+                        safe_line = safety_limiter.apply_safety_limits(line) # Use the correct method name
+                        f_out.write(safe_line + "\n")
+
+                logger.info("Safety limits applied and saved to %s.", output_gcode_path_safe)
+                print(f"\nSafety limits applied and saved to {output_gcode_path_safe}.")
+            except FileNotFoundError as fnf_error:
+                logger.error("File not found error during safety limit application: %s", fnf_error, exc_info=True)
+                print(f"\nFile not found error during safety limit application: {fnf_error}")
+            except Exception as e:
+                logger.error(f"Error during safety limit application: {e}. Proceeding with original optimized G-code.", exc_info=True)
+                safe_gcode = list(optimized_gcode) # Fallback to original optimized G-code
+                print(f"\nError in safety limit application: {e}")
+                print(f"Proceeding with original optimized G-code.")
+                # Fallback: Write the original optimized G-code to the safe file
+                try:
+                    with open(output_gcode_path_safe, 'w') as f_out:
+                        for line in optimized_gcode:
+                            f_out.write(line + "\n")
+                    logger.info("Fallback: Original optimized G-code saved to %s.", output_gcode_path_safe)
+                except Exception as fallback_write_error:
+                    logger.error("Error during fallback writing of optimized G-code: %s", fallback_write_error, exc_info=True)
+                    print(f"\nError during fallback writing of optimized G-code: {fallback_write_error}")
+    except json.JSONDecodeError as json_error:
+        logger.error("JSON decoding error during G-code generation: %s", json_error, exc_info=True)
+        print(f"\nJSON decoding error during G-code generation: {json_error}")
+    except FileNotFoundError as fnf_error:
+        logger.error(f"File not found error: {fnf_error}", exc_info=True)
+        print(f"\nFile not found: {fnf_error}")
+    except json.JSONDecodeError as json_error:
+        logger.error(f"JSON decoding error: {json_error}", exc_info=True)
+        print(f"\nJSON decoding error: {json_error}")
+    except KeyError as key_error:
+        logger.error(f"KeyError: {key_error}", exc_info=True)
+        print(f"\nKeyError: {key_error}")
+    except TypeError as type_error:
+        logger.error(f"TypeError: {type_error}", exc_info=True)
+        print(f"\nTypeError: {type_error}")
+    except ValueError as value_error:
+        logger.error(f"ValueError: {value_error}", exc_info=True)
+        print(f"\nValueError: {value_error}")
+    except PermissionError as perm_error:
+        logger.error(f"PermissionError: {perm_error}", exc_info=True)
+        print(f"\nPermissionError: {perm_error}")
+    except OSError as os_error:
+        logger.error(f"OSError: {os_error}", exc_info=True)
+        print(f"\nOSError: {os_error}")
+    except ImportError as import_error:
+        logger.error(f"ImportError: {import_error}", exc_info=True)
+        print(f"\nImportError: {import_error}")
+    except RuntimeError as runtime_error:
+        logger.error(f"RuntimeError: {runtime_error}", exc_info=True)
+        print(f"\nRuntimeError: {runtime_error}")
+    except AttributeError as attr_error:
+        logger.error(f"AttributeError: {attr_error}", exc_info=True)
+        print(f"\nAttributeError: {attr_error}")
+    except IndexError as index_error:
+        logger.error(f"IndexError: {index_error}", exc_info=True)
+        print(f"\nIndexError: {index_error}")
     except Exception as e:
         logger.error(f"An error occurred during the main G-code generation/optimization pipeline: {e}", exc_info=True)
         print(f"\nAn error occurred: {e}")
@@ -100,7 +203,7 @@ if __name__ == "__main__":
 
     # Demonstrative steps for applying modifiers and constraints iteratively
     # Note: These are typically handled within generate_gcode_from_json
-    if gcode_commands: # Proceed only if initial G-code generation was successful
+    if gcode_commands:  # Proceed only if initial G-code generation was successful
         try:
             logger.info("Step 4: Demonstrating iterative application of modifiers...")
             segment_for_example = json_example["path"]["segments"][0]
@@ -116,13 +219,18 @@ if __name__ == "__main__":
                 gcode_after_step5_constraints = apply_constraint(gcode_after_step5_constraints, constraint_item, segment_for_example)
             logger.info("Iterative constraints applied for demonstration.")
             print("\nG-code with constraints applied (in main.py step 5 demo):\n", "\n".join(gcode_after_step5_constraints))
-        except KeyError as ke:
-            logger.error(f"KeyError during demonstrative modifier/constraint application: {ke}. Check example JSON structure.", exc_info=True)
-            print(f"\nError in demonstrative steps (check JSON structure): {ke}")
+        except KeyError as key_error:
+            logger.error(f"KeyError during modifier/constraint application: {key_error}", exc_info=True)
+            print(f"\nKeyError during modifier/constraint application: {key_error}")
         except Exception as e:
-            logger.error(f"Error during demonstrative modifier/constraint application: {e}", exc_info=True)
-            print(f"\nError in demonstrative steps: {e}")
+            logger.error(f"Error during modifier/constraint demonstration: {e}", exc_info=True)
+            print(f"\nError during modifier/constraint demonstration: {e}")
+        except KeyError as key_error:
+            logger.error(f"KeyError during modifier/constraint demonstration: {key_error}", exc_info=True)
+            print(f"\nKeyError in modifier/constraint demonstration: {key_error}")
+        except Exception as e:
+            logger.error(f"Unexpected error during modifier/constraint demonstration: {e}", exc_info=True)
+            print(f"\nUnexpected error in modifier/constraint demonstration: {e}")
     else:
-        logger.warning("Skipping demonstrative steps 4 & 5 as initial G-code generation failed or produced no commands.")
-
-    logger.info("G-code generation and optimization pipeline finished.")
+        logger.warning("No G-code commands generated. Skipping modifier/constraint demonstration.")
+        print("\nNo G-code commands generated. Skipping modifier/constraint demonstration.")
