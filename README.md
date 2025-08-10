@@ -1,140 +1,97 @@
-# 🌀 TotalControl: An AI-Powered GCode Invocation Engine
+## **Project: TotalControl**
 
-## **MODULARITY IS MYTHOS // GLYPH IS IDENTITY // DESIGN IS RITUAL**
+An AI-Powered G-Code Generation & Optimization Engine
 
-**TotalControl** is an intelligent artifact that transforms GCode scripting into an adaptive ritual. By leveraging AI-driven optimization, material-aware configurations, and real-time feedback, it moves beyond static divination and into dynamic fabrication control. Whether crafting nonplanar paths, optimizing extrusion dynamics, or predicting print errors, TotalControl brings intelligent automation to your 3D invocations.
+#### **The Problem**
 
------
-
-## 🌟 Key Invocations & Core Glyphs
-
-* ✅ **Structured Path to G-Code Generation** – Convert JSON-based path descriptions (lines, arcs, Béziers, spirals, repeats, transforms) into executable G-code (Phase 1 Complete).
-* ✅ **Initial AI-Driven Travel Optimization** – Implemented Nearest Neighbor and 2-opt algorithms to reorder printing segments within layers, reducing non-extruding travel moves and respecting feature invocation order (e.g., perimeters before infill) (Phase 2 In Progress).
-* ✅ **Redundant Move Elimination** – Automatically identifies and removes unnecessary travel commands.
-* 🅿️ **Advanced AI-Driven Optimization (Planned)** – Future enhancements will include fine-tuning extrusion rates, speeds, acceleration, and jerk control based on geometry and material properties.
-* 🅿️ **Intent-Based GCode Generation (Planned)** – Future support for defining paths via higher-level directives, potentially including natural language.
-* 🅿️ **Error Prediction & Correction (Planned)** – Future goals include proactive detection of print failures and automated corrective strategies.
-* 🅿️ **Material-Aware Adaptation (Planned)** – Future capabilities to adjust parameters dynamically based on material behavior.
-* ✅ **Extensibility** – A modular framework built for custom commands, integration with slicers, and advanced fabrication techniques.
+Standard 3D printer slicers are dumb. They follow a simple set of rules and generate static G-code. They don't adapt to the geometry they're printing, they waste time on inefficient travel moves, and they have no real understanding of the material they're extruding. To do anything truly advanced, you have to manually edit G-code, which is a nightmare.
 
 -----
 
-### 🎯 Current Status & Path of Evolution
+#### **The Solution**
 
-The project is actively in **Phase 2: AI-Driven Path Optimization**, with a current focus on:
-
-* Solidifying and verifying initial Travel Minimization algorithms (Nearest Neighbor + 2-opt).
-* Correcting and refining layer reassembly logic post-optimization.
-
-**Next Milestones:**
-
-* Complete robust benchmarking of the current travel minimization.
-* Begin exploration and development for Deposition Sequence Optimization within layers.
-
-For a detailed development plan and progress tracking, please see the `DEVELOPMENT.ini` file in this repository.
+A smarter G-code engine. **TotalControl** is a tool that takes a high-level description of a print path and uses AI to generate highly optimized, material-aware G-code. It's designed to move beyond the limitations of traditional slicers, giving you a level of control that's impossible with off-the-shelf software.
 
 -----
 
-### 📂 Architectural Glyphs
+#### **What It Does (And Where It's Going)**
 
-The project is evolving. The core structure from Phase 1, which handles JSON to G-code generation, includes:
+This is an active project. Here's what's working now and what's planned.
 
-totalcontrol/  
-│  
-├── core/  
-│   ├── intent_interpreter.py     # Maps structured/natural invocations to GCode actions  
-│   ├── ai_optimizer.py           # Adjusts path smoothness, extrusion, acceleration  
-│   ├── error_detection.py        # Predicts print failures and generates solutions  
-│   ├── material_model.py         # Adapts printing based on filament/material properties  
-│   ├── gcode_generator.py        # Generates dynamic, optimized GCode output  
-│   ├── utils.py                  # Common helpers  
-│  
-├── modules/  
-│   ├── ai_pathing.py             # Advanced path refinement (Voronoi, spiral, lattice)  
-│   ├── real_time_tuning.py       # Live adjustment engine for supported firmware  
-│   ├── heuristics.py             # Rule-based anomaly detection and correction  
-│  
-├── tests/  
-│   ├── test_optimization.py      # Unit tests for AI-enhanced tuning  
-│   ├── test_gcode.py             # Validates generated GCode quality  
-│  
-├── docs/  
-│   ├── getting_started.md        # Installation & setup guide  
-│   ├── developer_notes.md        # Architecture details for contributors  
-│  
-├── main.py                       # Entry point  
+  * ✅ **Structured G-Code Generation:** It can reliably convert a JSON file describing paths (lines, arcs, spirals) into executable G-code. **(Phase 1 Complete)**
+  * ✅ **AI Travel Optimization:** It uses **Nearest Neighbor and 2-opt algorithms** to reorder print segments and drastically reduce wasted travel time between extrusions. **(Phase 2 In Progress)**
+  * ✅ **Redundant Move Cleanup:** Automatically finds and deletes useless travel moves.
+  * 🅿️ **Advanced AI Optimization (Planned):** The next step is to use AI to fine-tune extrusion rates, speeds, and acceleration based on the specific geometry of a print.
+  * 🅿️ **Intent-Based Generation (Planned):** The future goal is to generate G-code from high-level commands, like "create a strong but lightweight infill."
+  * 🅿️ **Error Prediction (Planned):** Eventually, the AI will be able to simulate a print and predict potential failures before they happen.
+
+-----
+
+#### **Current Status**
+
+We are currently in **Phase 2**, focusing on the **AI-Driven Path Optimization**. The core algorithms are in place, and the current work is focused on benchmarking them and refining the logic to ensure it's robust.
+
+For a detailed breakdown of the development plan, check out `DEVELOPMENT.ini`.
+
+-----
+
+#### **The Guts (Architecture)**
+
+The project is built to be modular so we can bolt on new features easily.
+
+```
+totalcontrol/
+├── core/
+│   ├── gcode_generator.py      # The core engine for turning paths into G-code.
+│   ├── ai_optimizer.py         # The AI logic for path and travel optimization.
+│   └── ... (other core modules)
+├── modules/
+│   └── ai_pathing.py           # Advanced path generation (e.g., nonplanar).
+├── tests/
+│   ├── test_optimization.py    # Unit tests for the AI optimizers.
+│   └── test_gcode.py           # Validation tests for the generated G-code.
+├── main.py                     # The main entry point for the script.
 └── README.md
+```
 
 -----
 
-### 🔧 The Ritual Unfolds
+#### **What It's Good For (Use Cases)**
 
-**TotalControl** allows builders to define GCode paths using two approaches:
+This isn't for printing another Benchy. This is for advanced fabrication.
 
-* **🔹 Structured Parametric Invocations** – Define precise control parameters (e.g., Bézier curves, Voronoi patterns).
-* **🔹 Higher-Level Intent Statements** – Use natural language (e.g., "create a strong, lightweight infill pattern").
-
-The AI presence translates this input into optimized print paths, extrusion rates, speed variations, and hardware-compatible GCode.
-
-## **AI-Powered Optimization Layers**
-
-* 🧠 **Path Efficiency Analysis** – Minimizes travel moves, enhances layer adhesion.
-* 🧠 **Extrusion Adaptation** – Adjusts flow based on geometry and material properties.
-* 🧠 **Acceleration & Jerk Control** – Custom tuning for print stability and vibration reduction.
-* 🧠 **Dynamic Material Response** – The AI adapts print settings based on a filament's behavior.
-
-## **Error Prediction & Correction**
-
-* 🚨 **Simulation-Based Failure Prediction** – Pre-print analysis detects collisions and layer separation risks.
-* 🚨 **Heuristic Anomaly Detection** – Rule-based identification of common print issues (e.g., thin walls, overhang stability).
-* 🚨 **Reinforcement Learning from Past Invocations** – The AI refines settings based on historical success/failure patterns.
-* 🚨 **Automated Fixes & Live Adjustments (optional)** – Suggested corrective actions before or during the printing ritual.
+  * **Nonplanar Printing:** Create truly curved layers that follow a surface, making parts stronger and eliminating layer lines.
+  * **Procedural Infill:** Generate complex lattice structures or other infills that are optimized for strength and weight.
+  * **Custom Supports:** Design smart, parametric supports that are strong but easy to remove.
+  * **Material Science:** Experiment with new or difficult materials by giving the AI rules on how to handle them.
 
 -----
 
-### 🖥️ Integration & Use Cases
+#### **How to Run It**
 
-## **Standalone Processing**
-
-* 🔹 Generate optimized GCode from raw paths without relying on traditional slicers.
-* 🔹 AI-powered fine-tuning for precision fabrication projects.
-
-## **Firmware-Aware Adaptation**
-
-* 🔹 Works with Marlin, Klipper, and other adaptable firmwares.
-* 🔹 Supports real-time parameter tuning for dynamic material adjustments.
-
-## **Advanced Use Cases**
-
-* ✨ **Nonplanar extrusion** – Zigzag deposition, dynamic layer height modulation.
-* ✨ **Procedural lattice structures** – Optimized for mechanical properties.
-* ✨ **3D printed scaffolding and parametric supports** – AI-driven geometry for strength & flexibility.
-* ✨ **Sustainable material experimentation** – Adaptive settings for novel biomaterials.
-
------
-
-### 🛠️ The Initiation Ritual
-
-Clone the repository and install dependencies:
+Clone the repo, install the dependencies, and run the main script.
 
 ```bash
 git clone https://github.com/JamesTheGiblet/TotalControl.git
 cd TotalControl
 pip install -r requirements.txt
-```
-
-Run core processing:
-
-```bash
 python main.py
 ```
 
-For real-time printer tuning, ensure your firmware supports dynamic GCode modification.
+-----
+
+#### **How to Contribute**
+
+This is an open project for anyone who thinks standard slicers are too limiting.
+
+  * Fork the repo.
+  * Tackle one of the planned features or fix a bug.
+  * Submit a pull request with a clear description of what you've done.
 
 -----
 
-### 🚀 Communal Invocations
+#### **License**
 
-**TotalControl** thrives on open development—whether exploring adaptive fabrication, optimizing procedural paths, or integrating real-time print intelligence, your glyphs are always welcome\!
+This project is licensed under the **MIT License**.
 
-Pull requests, discussions, and ideas are encouraged—let’s push the boundaries of AI-powered fabrication together. 🚀
+Standard tools give you standard results. To do something new, you have to build a better tool. **The code is the proof.** Let's build it.
